@@ -1,0 +1,732 @@
+---
+title: 'Real-time Features'
+description: 'Implement real-time presence, multiplayer zones, and live chat using Supabase Realtime channels in Chapter iOS'
+---
+
+## Overview
+
+Chapter uses **Supabase Realtime** to provide live features:
+
+- **User Presence**: Track who's online, away, or offline
+- **Multiplayer Zones**: See other players in game hubs with real-time position sync
+- **Zone Chat**: Send and receive messages instantly in multiplayer areas
+- **Feed Updates**: Get notified when new content is posted
+
+Supabase Realtime is built on **Phoenix Channels** and provides WebSocket-based pub/sub messaging.
+
+## Architecture
+
+Chapter implements three primary real-time services:
+
+| Service | Purpose | Channel Type |
+|---------|---------|-------------|
+| `PresenceService` | Global user online status | Presence |
+| `MultiplayerService` | Zone-specific player positions and avatars | Presence + Broadcast |
+| `ZoneChatService` | In-game chat messaging | Broadcast |
+
+## PresenceService
+
+Tracks user online/away/offline status globally across the app.
+
+### Implementation
+
+```swift PresenceService.swift:27-50
+@MainActor
+final class PresenceService: ObservableObject {
+    static let shared = PresenceService()
+
+    @Published private(set) var status: String = "offline"
+    @Published private(set) var devicePresence: [String: PresencePayload] = [:]
+    @Published private(set) var userPresence: [String: UserAggregate] = [:]
+
+    var usersSorted: [UserAggregate] {
+        userPresence.values.sorted { $0.id < $1.id }
+    }
+    
+    private let supabase: SupabaseClient = AuthManager.shared.supabase
+    private var channel: RealtimeChannelV2?
+    private var heartbeatTask: Task<Void, Never>?
+    private var presenceKey: String = ""
+    private var isSubscribed = false
+    private var appStateObservers: [NSObjectProtocol] = []
+    private var currentUserId: String?
+
+    init() {
+        setupAppStateObservers()
+    }
+}
+```
+
+### Presence Payload Model
+
+```swift PresenceService.swift:12-17
+struct PresencePayload: Codable {
+    let userId: String
+    let status: String   // "online" | "away" | "offline"
+    let lastSeen: Date
+    let deviceId: String
+}
+```
+
+### Connecting to Presence
+
+```swift PresenceService.swift:95-142
+func connect(userId: String, deviceId: String? = nil) async {
+    currentUserId = userId
+
+    let resolvedDeviceId = deviceId
+        ?? (UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString)
+    let key = "\(userId)#\(resolvedDeviceId)"
+
+    let ch = supabase.channel("online-users") { config in
+        config.presence.key = key
+    }
+    self.channel = ch
+    self.presenceKey = key
+
+    ch.onPresenceChange { [weak self] presence in
+        guard let self else { return }
+        do {
+            let joins: [PresencePayload] = try presence.decodeJoins(as: PresencePayload.self)
+            let leaves: [PresencePayload] = try presence.decodeLeaves(as: PresencePayload.self)
+
+            if !joins.isEmpty {
+                Task { @MainActor in
+                    for meta in joins {
+                        let key = "\(meta.userId)#\(meta.deviceId)"
+                        self.upsertDevice(key, payload: meta)
+                    }
+                }
+            }
+
+            if !leaves.isEmpty {
+                Task { @MainActor in
+                    for meta in leaves {
+                        let key = "\(meta.userId)#\(meta.deviceId)"
+                        self.removeDevice(key, userId: meta.userId)
+                    }
+                }
+            }
+        } catch {
+            // handle decode error
+        }
+    }
+
+    await ch.subscribe()
+    isSubscribed = true
+}
+```
+
+<Note>
+The presence key includes device ID to support multi-device presence (e.g., user online on both iPhone and iPad).
+</Note>
+
+### Status Transitions
+
+```swift PresenceService.swift:144-186
+func goOnline(userId: String) {
+    guard isSubscribed, let ch = channel else { return }
+    status = "online"
+
+    let key = presenceKey
+    Task { @MainActor in
+        try? await ch.track(
+            PresencePayload(
+                userId: userId,
+                status: "online",
+                lastSeen: Date(),
+                deviceId: key
+            )
+        )
+    }
+
+    startHeartbeat(userId: userId)
+}
+
+func goAway(userId: String) {
+    guard isSubscribed, let ch = channel else { return }
+    status = "away"
+
+    let key = presenceKey
+    performBackground("presence-away") { @MainActor in
+        try? await ch.track(
+            PresencePayload(
+                userId: userId,
+                status: "away",
+                lastSeen: Date(),
+                deviceId: key
+            )
+        )
+    }
+    stopHeartbeat()
+}
+
+func goOffline() {
+    guard isSubscribed, let ch = channel else { return }
+    status = "offline"
+
+    performBackground("presence-offline") { @MainActor in
+        await ch.untrack()
+    }
+    stopHeartbeat()
+}
+```
+
+### App Lifecycle Integration
+
+```swift PresenceService.swift:60-92
+private func setupAppStateObservers() {
+    // Go away when app enters background
+    let backgroundObserver = NotificationCenter.default.addObserver(
+        forName: UIApplication.didEnterBackgroundNotification,
+        object: nil,
+        queue: .main
+    ) { [weak self] _ in
+        guard let self = self, let userId = self.currentUserId else { return }
+        self.goAway(userId: userId)
+    }
+    appStateObservers.append(backgroundObserver)
+
+    // Go online when app becomes active
+    let activeObserver = NotificationCenter.default.addObserver(
+        forName: UIApplication.didBecomeActiveNotification,
+        object: nil,
+        queue: .main
+    ) { [weak self] _ in
+        guard let self = self, let userId = self.currentUserId else { return }
+        self.goOnline(userId: userId)
+    }
+    appStateObservers.append(activeObserver)
+
+    // Clean up when app will terminate
+    let terminateObserver = NotificationCenter.default.addObserver(
+        forName: UIApplication.willTerminateNotification,
+        object: nil,
+        queue: .main
+    ) { [weak self] _ in
+        self?.stopHeartbeat()
+    }
+    appStateObservers.append(terminateObserver)
+}
+```
+
+## MultiplayerService
+
+Handles real-time multiplayer for game zones, including player positions, avatars, and pets.
+
+### Implementation
+
+```swift MultiplayerService.swift:24-61
+@MainActor
+final class MultiplayerService: ObservableObject {
+    static let shared = MultiplayerService()
+
+    @Published var nearbyPlayers: [NearbyPlayer] = []
+    @Published var connectionState: MultiplayerConnectionState = .disconnected
+    @Published var playerCount: Int = 0
+
+    private var supabase: SupabaseClient { AppContainer.shared.supabase }
+    private var presenceChannel: RealtimeChannelV2?
+    private var chatChannel: RealtimeChannelV2?
+    private var currentChannelKey: String?
+    private var presenceListenTask: Task<Void, Never>?
+    private var chatListenTask: Task<Void, Never>?
+    private var emoteListenTask: Task<Void, Never>?
+    private var stalePlayerTimer: Timer?
+
+    private var avatarConfigCache: [UUID: PlayerAvatarConfig] = [:]
+    private var lastHeardFrom: [UUID: Date] = [:]
+    private var playerSchoolCache: [UUID: (uniId: Int?, schoolId: Int?)] = [:]
+
+    private let maxVisiblePlayers = 30
+    private let staleTimeout: TimeInterval = 20.0
+
+    private var privacyObserver: NSObjectProtocol?
+
+    private init() {
+        setupAppLifecycleObservers()
+        setupPrivacyObserver()
+    }
+
+    struct NearbyPlayer: Identifiable, Equatable {
+        let id: UUID
+        var name: String
+        var x: Double
+        var y: Double
+        var targetX: Double?
+        var targetY: Double?
+        var avatarConfig: PlayerAvatarConfig
+        var animationState: String
+        var petConfig: PetConfig?
+    }
+}
+```
+
+### Joining a Zone
+
+```swift MultiplayerService.swift:87-155
+func joinZone(hub: String, zone: String) async {
+    let channelKey = Self.channelKey(hub: hub, zone: zone)
+
+    // Already in this zone
+    if currentChannelKey == channelKey { return }
+
+    // Leave previous zone
+    if currentChannelKey != nil {
+        await leaveZone()
+    }
+
+    currentChannelKey = channelKey
+
+    // Solo mode — don't join any channels
+    guard LobbyPrivacyService.shared.shouldJoinPresence else {
+        connectionState = .disconnected
+        return
+    }
+
+    connectionState = .connecting
+
+    // --- Presence Channel ---
+    let presChannelName = "presence:\(channelKey)"
+    let presCh = supabase.realtimeV2.channel(presChannelName)
+    presenceChannel = presCh
+
+    presenceListenTask = Task { [weak self] in
+        let stream = presCh.presenceChange()
+        for await change in stream {
+            await self?.handlePresenceChange(change)
+        }
+    }
+
+    // --- Chat Broadcast Channel ---
+    let chatChannelName = "chat:\(channelKey)"
+    let chatCh = supabase.realtimeV2.channel(chatChannelName)
+    chatChannel = chatCh
+
+    chatListenTask = Task { [weak self] in
+        let messageStream = chatCh.broadcastStream(event: "message")
+        for await msg in messageStream {
+            await self?.handleChatBroadcast(msg)
+        }
+    }
+
+    emoteListenTask = Task { [weak self] in
+        let emoteStream = chatCh.broadcastStream(event: "emote")
+        for await msg in emoteStream {
+            await self?.handleEmoteBroadcast(msg)
+        }
+    }
+
+    // Subscribe both channels
+    await presCh.subscribe()
+    await chatCh.subscribe()
+
+    // Track own presence
+    await trackSelf()
+
+    connectionState = .connected
+
+    // Start stale player cleanup timer
+    startStalePlayerTimer()
+}
+```
+
+<Tip>
+Each zone gets separate presence and chat channels to isolate multiplayer state. For university-specific hubs, channels are scoped by `uni_id`.
+</Tip>
+
+### Broadcasting Position Updates
+
+```swift MultiplayerService.swift:191-237
+private func trackSelf(x: Double? = nil, y: Double? = nil, isMoving: Bool = false, targetX: Double? = nil, targetY: Double? = nil) async {
+    guard let userId = AuthManager.shared.currentUser?.id,
+          let userName = AuthManager.shared.currentUser?.firstName else { return }
+
+    let avatarConfig = AvatarService.shared.avatarConfig
+    let avatarJSON: String
+    if let data = try? JSONEncoder().encode(avatarConfig),
+       let str = String(data: data, encoding: .utf8) {
+        avatarJSON = str
+    } else {
+        avatarJSON = "{}"
+    }
+
+    let scene = GameManager.shared.currentScene as? BaseHubScene
+    let px = x ?? Double(scene?.playerNode?.position.x ?? 0)
+    let py = y ?? Double(scene?.playerNode?.position.y ?? 0)
+
+    // Encode pet config if equipped
+    let petJSON: String
+    if let petConfig = PetService.shared.activePet,
+       let petData = try? JSONEncoder().encode(petConfig),
+       let petStr = String(data: petData, encoding: .utf8) {
+        petJSON = petStr
+    } else {
+        petJSON = ""
+    }
+
+    let user = AuthManager.shared.currentUser
+    let payload: [String: String] = [
+        "user_id": userId.uuidString,
+        "name": userName,
+        "x": String(px),
+        "y": String(py),
+        "target_x": targetX.map { String($0) } ?? "",
+        "target_y": targetY.map { String($0) } ?? "",
+        "animation_state": isMoving ? "walking" : "idle",
+        "avatar_config": avatarJSON,
+        "pet_config": petJSON,
+        "zone": currentChannelKey ?? "",
+        "timestamp": String(Date().timeIntervalSince1970),
+        "uni_id": user?.uni_id.map { String($0) } ?? "",
+        "school_id": user?.schoolId.map { String($0) } ?? "",
+        "privacy": LobbyPrivacyService.shared.privacyMode.rawValue
+    ]
+
+    try? await presenceChannel?.track(payload)
+}
+```
+
+### Handling Presence Changes
+
+```swift MultiplayerService.swift:278-312
+private func handlePresenceChange(_ change: any PresenceAction) async {
+    guard let myId = AuthManager.shared.currentUser?.id else { return }
+
+    var joinedUserIds = Set<UUID>()
+
+    // Process joins — add or update players
+    for (_, presence) in change.joins {
+        guard let player = parsePresence(presence, myId: myId) else { continue }
+        joinedUserIds.insert(player.id)
+        if let idx = nearbyPlayers.firstIndex(where: { $0.id == player.id }) {
+            nearbyPlayers[idx] = player
+        } else {
+            nearbyPlayers.append(player)
+        }
+        lastHeardFrom[player.id] = Date()
+    }
+
+    // Process leaves — only remove players who are genuinely leaving
+    for (_, presence) in change.leaves {
+        if let userIdStr = presence.state["user_id"]?.stringValue,
+           let userId = UUID(uuidString: userIdStr),
+           !joinedUserIds.contains(userId) {
+            nearbyPlayers.removeAll { $0.id == userId }
+            lastHeardFrom.removeValue(forKey: userId)
+        }
+    }
+
+    playerCount = nearbyPlayers.count
+    syncPlayersToScene(nearbyPlayers)
+}
+```
+
+## ZoneChatService
+
+Manages in-game chat with persistence, profanity filtering, and rate limiting.
+
+### Implementation
+
+```swift ZoneChatService.swift:12-60
+@MainActor
+final class ZoneChatService: ObservableObject {
+    static let shared = ZoneChatService()
+
+    @Published var recentMessages: [ZoneChatMessage] = []
+    @Published var isLoadingHistory = false
+    @Published var unreadCount: Int = 0
+
+    var isChatVisible = false
+
+    private var supabase: SupabaseClient { AppContainer.shared.supabase }
+    private var lastSentTime: Date = .distantPast
+    private let rateLimitInterval: TimeInterval = 2.0
+    private let maxMessageLength = 200
+    private let maxLocalMessages = 100
+
+    private init() {}
+
+    struct ZoneChatMessage: Identifiable, Equatable {
+        let id: UUID
+        let userId: UUID
+        let userName: String
+        let message: String
+        let timestamp: Date
+
+        init(userId: UUID, userName: String, message: String, timestamp: Date) {
+            self.id = UUID()
+            self.userId = userId
+            self.userName = userName
+            self.message = message
+            self.timestamp = timestamp
+        }
+
+        init(from db: LobbyChatMessageRow) {
+            self.id = db.id
+            self.userId = db.userId
+            self.userName = db.displayName
+            self.message = db.message
+            self.timestamp = db.createdAt
+        }
+    }
+}
+```
+
+### Sending Messages
+
+```swift ZoneChatService.swift:97-153
+func sendMessage(_ text: String) async -> Bool {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return false }
+
+    // Block chat in solo mode
+    guard LobbyPrivacyService.shared.isChatEnabled else { return false }
+
+    // Rate limit
+    let now = Date()
+    guard now.timeIntervalSince(lastSentTime) >= rateLimitInterval else { return false }
+
+    // Length limit
+    let limited = String(trimmed.prefix(maxMessageLength))
+
+    // Profanity filter
+    let filtered = ProfanityFilter.filter(limited)
+
+    guard let userId = AuthManager.shared.currentUser?.id,
+          let userName = AuthManager.shared.currentUser?.firstName else { return false }
+
+    lastSentTime = now
+
+    // Broadcast via realtime
+    await MultiplayerService.shared.sendChat(filtered)
+
+    // Show on own player's sprite
+    if let scene = GameManager.shared.currentScene as? BaseHubScene {
+        scene.playerNode?.showChatBubble(filtered, style: .own)
+    }
+
+    // Add to local history
+    let localMsg = ZoneChatMessage(
+        userId: userId,
+        userName: userName,
+        message: filtered,
+        timestamp: now
+    )
+    appendMessage(localMsg)
+
+    // Persist to DB
+    if let zoneId = MultiplayerService.shared.currentZoneKey {
+        let insert = LobbyChatInsert(
+            zoneId: zoneId,
+            userId: userId,
+            displayName: userName,
+            message: filtered
+        )
+        Task {
+            try? await supabase
+                .from("lobby_chat_messages")
+                .insert(insert)
+                .execute()
+        }
+    }
+
+    return true
+}
+```
+
+### Loading Chat History
+
+```swift ZoneChatService.swift:169-193
+func loadHistory(zoneId: String) async {
+    isLoadingHistory = true
+    defer { isLoadingHistory = false }
+
+    do {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let rows: [LobbyChatMessageRow] = try await supabase
+            .from("lobby_chat_messages")
+            .select()
+            .eq("zone_id", value: zoneId)
+            .order("created_at", ascending: false)
+            .limit(50)
+            .execute()
+            .value
+
+        // Insert in chronological order (DB returns newest first)
+        let history = rows.reversed().map { ZoneChatMessage(from: $0) }
+        recentMessages = history
+    } catch {
+        print("[ZoneChatService] Load history error: \(error)")
+    }
+}
+```
+
+### Profanity Filter
+
+```swift ZoneChatService.swift:249-281
+enum ProfanityFilter {
+    private static let bannedWords: Set<String> = [
+        "fuck", "shit", "ass", "bitch", "dick", "cunt", "piss",
+        "damn", "bastard", "slut", "whore", "fag", "nigger", "nigga",
+        "retard", "twat", "bollocks", "wanker"
+    ]
+
+    static func filter(_ text: String) -> String {
+        var result = text
+        let words = text.components(separatedBy: .whitespacesAndNewlines)
+
+        for word in words {
+            let lowered = word.lowercased().trimmingCharacters(in: .punctuationCharacters)
+            if bannedWords.contains(lowered) {
+                let replacement = String(repeating: "*", count: word.count)
+                result = result.replacingOccurrences(
+                    of: word,
+                    with: replacement,
+                    options: .caseInsensitive
+                )
+            }
+        }
+
+        return result
+    }
+
+    static func containsProfanity(_ text: String) -> Bool {
+        let words = text.lowercased().components(separatedBy: .whitespacesAndNewlines)
+        return words.contains { bannedWords.contains($0.trimmingCharacters(in: .punctuationCharacters)) }
+    }
+}
+```
+
+## Real-time Feed Updates
+
+Subscribe to new feed items in real-time:
+
+```swift CampusFeedService.swift:123-140
+private func setupRealtimeSubscription() {
+    Task {
+        let channel = supabase.channel("feed_updates")
+
+        let insertions = channel.postgresChange(
+            InsertAction.self,
+            schema: "public",
+            table: "feed_items"
+        )
+
+        await channel.subscribe()
+
+        for await insert in insertions {
+            await handleNewFeedItem(insert.record)
+        }
+    }
+}
+```
+
+## Best Practices
+
+### 1. Always Unsubscribe on Cleanup
+
+```swift
+func leaveZone() async {
+    await presenceChannel?.unsubscribe()
+    await chatChannel?.unsubscribe()
+    presenceChannel = nil
+    chatChannel = nil
+}
+```
+
+### 2. Handle Background Transitions
+
+Update presence state when app backgrounds:
+
+```swift
+NotificationCenter.default.addObserver(
+    forName: UIApplication.didEnterBackgroundNotification,
+    object: nil,
+    queue: .main
+) { [weak self] _ in
+    self?.goAway(userId: userId)
+}
+```
+
+### 3. Implement Heartbeats for Presence
+
+Periodically update presence to keep lastSeen fresh:
+
+```swift PresenceService.swift:201-217
+private func startHeartbeat(userId: String) {
+    stopHeartbeat()
+    heartbeatTask = Task { @MainActor in
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 25 * 1_000_000_000)
+            guard let ch = self.channel else { continue }
+
+            let payload = PresencePayload(
+                userId: userId,
+                status: self.status,
+                lastSeen: Date(),
+                deviceId: self.presenceKey
+            )
+            try? await ch.track(payload)
+        }
+    }
+}
+```
+
+### 4. Implement Stale Detection
+
+Remove players who haven't sent updates recently:
+
+```swift MultiplayerService.swift:530-555
+private func cleanupStalePlayers() {
+    let now = Date()
+    guard let scene = GameManager.shared.currentScene as? BaseHubScene else { return }
+
+    var toRemove: [UUID] = []
+    for (userId, lastSeen) in lastHeardFrom {
+        let elapsed = now.timeIntervalSince(lastSeen)
+        if elapsed > staleTimeout * 3 {
+            // Very stale — remove completely
+            toRemove.append(userId)
+        } else if elapsed > staleTimeout {
+            // Moderately stale — show as idle ghost
+            if let node = scene.otherPlayers[userId] {
+                if node.isMoving { node.stopMovement() }
+                node.setIdleGhost()
+            }
+        }
+    }
+
+    for userId in toRemove {
+        nearbyPlayers.removeAll { $0.id == userId }
+        lastHeardFrom.removeValue(forKey: userId)
+        scene.removeOtherPlayer(userId: userId)
+    }
+    playerCount = nearbyPlayers.count
+}
+```
+
+### 5. Rate Limit Broadcasts
+
+Prevent spam by throttling message sends:
+
+```swift
+let now = Date()
+guard now.timeIntervalSince(lastSentTime) >= rateLimitInterval else { 
+    return false 
+}
+lastSentTime = now
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Supabase Integration" icon="database" href="/technical/supabase-integration">
+    Core database patterns
+  </Card>
+  <Card title="Data Services" icon="layers" href="/technical/data-services">
+    Service layer architecture
+  </Card>
+</CardGroup>

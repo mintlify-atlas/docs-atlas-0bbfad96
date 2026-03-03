@@ -1,0 +1,277 @@
+---
+title: Game Hub Overview
+description: Explore Chapter's immersive 3D game world - a living, multiplayer campus experience that transforms university planning into an interactive journey
+---
+
+Chapter transforms the university journey into an immersive game world where students explore, connect, and prepare for their future through interactive 3D environments. The game hub provides a "The Sims meets UK Education" experience that wraps all app features in an explorable, multiplayer world.
+
+## Game Vision
+
+The game world serves as a new navigation layer on top of existing Chapter features. Instead of browsing static menus, students walk through interactive zones, tap buildings to access features, and see other students exploring alongside them in real-time.
+
+**Key design principle:** The game enhances navigation without replacing functionality. Every existing feature (course search, accommodation, careers, messaging) remains exactly as built - the game simply provides a more engaging way to access them.
+
+## Four Game Hubs
+
+The game world adapts to each student's journey stage, presenting different hubs based on their `EnrollmentStatus`:
+
+### 1. Careers Hub (Prospects)
+
+<CardGroup cols={2}>
+  <Card title="Career Exploration" icon="briefcase">
+    Interactive buildings for each career sector (Healthcare, Engineering, Business, Arts, Tech)
+  </Card>
+  <Card title="University Fair" icon="building-columns">
+    Virtual booths for every UK university with full detail views
+  </Card>
+  <Card title="Career Arcade" icon="gamepad">
+    SpriteKit mini-games for career discovery and skills assessment
+  </Card>
+  <Card title="Course Discovery" icon="magnifying-glass">
+    Search kiosks and category buildings for course exploration
+  </Card>
+</CardGroup>
+
+**Purpose:** Help prospects explore career paths, discover universities, and decide between uni and apprenticeships.
+
+### 2. Offer Holder Hub (Deciding)
+
+<CardGroup cols={2}>
+  <Card title="Five Islands" icon="island-tropical">
+    One island per UCAS choice from the student's shortlist
+  </Card>
+  <Card title="Comparison Central" icon="scale-balanced">
+    Interactive scale building for comparing offers
+  </Card>
+  <Card title="UCAS Tracker" icon="timeline">
+    Journey timeline building showing application progress
+  </Card>
+  <Card title="Q&A Café" icon="comments">
+    Chat with current students about courses and universities
+  </Card>
+</CardGroup>
+
+**Purpose:** Help offer holders compare their options, explore accommodation, and make their firm choice decision.
+
+### 3. Firm Choice Hub (Preparing)
+
+<CardGroup cols={2}>
+  <Card title="Campus Preview" icon="map">
+    Detailed map of the student's firm choice university
+  </Card>
+  <Card title="Societies Fair" icon="users">
+    Interactive stalls for every society at their university
+  </Card>
+  <Card title="Preparation HQ" icon="list-check">
+    Checklist building for pre-arrival tasks
+  </Card>
+  <Card title="What's Next Office" icon="compass">
+    Guidance building for settling in and next steps
+  </Card>
+</CardGroup>
+
+**Purpose:** Help students prepare for university arrival, find flatmates, and complete essential pre-enrollment tasks.
+
+### 4. Campus Life Hub (Enrolled)
+
+<CardGroup cols={2}>
+  <Card title="Library & Lecture Halls" icon="book">
+    Study spaces with timetable integration and class resources
+  </Card>
+  <Card title="Student Union" icon="building">
+    Events board, society desks, and campus feed access
+  </Card>
+  <Card title="Your Room" icon="door-open">
+    Customizable personal space in student accommodation
+  </Card>
+  <Card title="Sports Centre" icon="futbol">
+    Team rooms and fixtures board for university sports
+  </Card>
+</CardGroup>
+
+**Purpose:** Full university life simulation with study tracking, social spaces, and community features.
+
+## Technical Architecture
+
+### Hybrid SwiftUI + SpriteKit
+
+The game uses a layered architecture that maintains SwiftUI's navigation while adding a SpriteKit game layer:
+
+```swift
+ChapterApp (SwiftUI)
+└── MasterTabView
+    └── GameContainerView (SwiftUI) // Replaces tab content
+        ├── SpriteView(scene: currentHubScene) // SpriteKit game layer
+        ├── GameHUDView (SwiftUI overlay) // Mini-map, XP bar, chat
+        └── FeatureOverlayView (SwiftUI) // Existing views as overlays
+```
+
+### Scene Management
+
+The `GameManager` singleton bridges SpriteKit scenes with SwiftUI:
+
+- **Scene Switching:** Automatically loads the appropriate hub scene based on `EnrollmentStatus`
+- **Feature Overlays:** When players tap buildings, existing SwiftUI views appear as overlays
+- **State Persistence:** Player position, progress, and customization saved to Supabase
+
+### Zone-Based Design (Phase 3)
+
+Each hub is divided into multiple interconnected zones:
+
+- **Compact Scenes:** Small, focused areas instead of one massive world
+- **2.5D Backgrounds:** AI-generated artwork with depth and perspective
+- **Zone Transitions:** Smooth fades between zones via boundary arrows or exit areas
+- **Independent Multiplayer:** Each zone has its own Realtime Presence channel
+
+## Game Features
+
+### Real-Time Multiplayer
+
+<Info>
+  See other students exploring the same zones in real-time via Supabase Realtime Presence
+</Info>
+
+Students can:
+- **See avatars** of other students walking around
+- **Chat via proximity bubbles** (messages appear above avatars)
+- **Tap profiles** to view student details, add friends, or send DMs
+- **Privacy controls** (public, friends-only, school-only, or solo mode)
+
+Multiplayer uses Supabase Realtime Presence for ephemeral position sync (no database writes per frame), with channels scoped per zone for performance:
+
+```swift
+let channel = supabase.realtime.channel("hub:careers:zone:main_hub")
+await channel.track(["user_id": userId, "x": x, "y": y, "avatar": config])
+```
+
+### Avatar Customization
+
+Students create Bitmoji-style avatars with:
+
+- **Body:** Skin tone selection
+- **Hair:** Multiple styles and colors
+- **Face:** Eye styles, face shapes
+- **Outfit:** Tops, bottoms, shoes (with university-branded merch for offer holders)
+- **Accessories:** Glasses, hats, items
+- **Pets:** Companion animals that follow the player
+
+Avatars use `AvatarRenderer` to composite body parts into a single sprite with natural walk/run animations.
+
+### XP & Progression
+
+Students earn XP by:
+- Exploring new buildings (+5 XP)
+- Completing features (+10 XP)
+- Finishing mini-games (variable XP)
+- Unlocking new zones (+20 XP)
+
+Levels unlock cosmetic rewards and zone access via a quest system.
+
+### Quest System
+
+Structured guidance through the game world:
+
+```swift
+struct Quest {
+    let id: String
+    let title: String
+    let description: String
+    let objectives: [QuestObjective]
+    let reward: QuestReward
+}
+```
+
+Quests guide students through key tasks ("Explore 3 career sectors", "Compare your offers", "Find your flat") with visual markers on buildings.
+
+## Performance Optimizations
+
+<CardGroup cols={2}>
+  <Card title="Terrain Rendering" icon="mountain">
+    Single pre-rendered texture for ground (grass, paths, water) - one draw call
+  </Card>
+  <Card title="Viewport Culling" icon="eye-slash">
+    Hides off-screen decoration nodes to reduce render load
+  </Card>
+  <Card title="Polygon Collision" icon="shapes">
+    Precise pathfinding around obstacles using visibility graph A*
+  </Card>
+  <Card title="Player Limiting" icon="users-slash">
+    Max 30 visible players, sorted by proximity to local player
+  </Card>
+</CardGroup>
+
+The game maintains 60 FPS on iPhone 12+ with 20+ concurrent players per zone.
+
+## Navigation Integration
+
+The game replaces `ChapterHubView` (the widget cards screen) while preserving all tabs:
+
+- **Hub tab:** Shows the game world
+- **Search tab:** Direct course/uni search (unchanged)
+- **Feed tab:** Campus feed (unchanged)
+- **Calendar tab:** Timetable for enrolled students (unchanged)
+- **Connect tab:** Messages and groups (unchanged)
+
+Students who prefer quick access can still use tabs directly - the game is additive, not mandatory.
+
+## Building Interactions
+
+Buildings in the game world map to existing `AppDestination` routes:
+
+```swift
+class InteractiveBuildingNode: SKSpriteNode {
+    let buildingType: BuildingType
+    let destination: AppDestination  // Uses existing routing!
+    
+    func onTap() {
+        GameManager.shared.showFeature(destination)
+    }
+}
+```
+
+When tapped, buildings trigger the same views users access via widgets or tabs, maintaining consistency.
+
+## Database Schema
+
+The game adds four tables to Supabase (existing tables unchanged):
+
+<AccordionGroup>
+  <Accordion title="player_progress">
+    Tracks current hub, level, XP, unlocked zones, achievements, and last position
+  </Accordion>
+  <Accordion title="player_avatars">
+    Stores avatar customization (skin tone, hair, outfit, accessories)
+  </Accordion>
+  <Accordion title="player_last_position">
+    Fallback position for reconnection (Presence handles live positions)
+  </Accordion>
+  <Accordion title="minigame_scores">
+    Leaderboards for Career Arcade and other mini-games
+  </Accordion>
+</AccordionGroup>
+
+All tables use Row Level Security (RLS) policies matching existing Chapter patterns.
+
+## Platform Support
+
+- **Minimum:** iPhone 12, iOS 16+
+- **Optimized for:** Portrait and landscape (dynamic zoom-to-fit on rotation)
+- **App bundle:** < 100MB (SpriteKit is lightweight, AI sprites compressed)
+
+<Check>
+  The game uses native SpriteKit - no Unity, no external game engines, no UIKit
+</Check>
+
+## Success Metrics
+
+After full implementation, students will:
+
+1. Open Chapter and see a living game world instead of static widget cards
+2. Tap-to-walk around zones, exploring buildings
+3. Tap a building to access the same features they'd normally navigate to via menus
+4. See other students walking around, chat in proximity, and build connections
+5. Experience their entire education journey - from career discovery to campus life - as an immersive game
+
+<Info>
+  Every underlying feature (course search, accommodation, careers, messaging) remains exactly as built. The game is a navigation layer that makes Chapter feel like a world, not an app.
+</Info>

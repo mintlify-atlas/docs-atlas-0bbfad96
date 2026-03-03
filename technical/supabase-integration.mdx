@@ -1,0 +1,338 @@
+---
+title: 'Supabase Integration'
+description: 'Learn how Chapter iOS integrates with Supabase for backend services, real-time features, and data persistence'
+---
+
+## Overview
+
+Chapter uses [Supabase](https://supabase.com) as its primary backend service, providing:
+
+- **PostgreSQL Database**: Relational data storage for users, courses, accommodations, posts, and more
+- **Real-time Subscriptions**: Live updates via WebSocket channels
+- **Authentication**: Email-based magic link authentication with OTP verification
+- **Storage**: Object storage for images, videos, and user-generated content
+- **Row Level Security (RLS)**: Database-level security policies
+
+## Client Configuration
+
+The Supabase client is initialized in `AuthManager` and shared throughout the app:
+
+```swift AuthManager.swift:153-170
+init() {
+    supabaseURL = "https://tlnelgccwzoeszfejgls.supabase.co"
+    supabaseAPIKey = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_API_KEY") as? String
+    
+    guard let supabaseURLString = supabaseURL,
+          let supabaseKey = supabaseAPIKey,
+          let supabaseURL = URL(string: supabaseURLString) else {
+        fatalError("Missing SUPABASE_URL or SUPABASE_API_KEY in Info.plist")
+    }
+    
+    supabase = SupabaseClient(supabaseURL: supabaseURL, supabaseKey: supabaseKey)
+    storageService = StorageService(supabaseClient: supabase)
+}
+```
+
+### Environment Configuration
+
+The Supabase API key is stored in `Info.plist` as `SUPABASE_API_KEY` for security. Never hardcode credentials in source files.
+
+<Note>
+The URL is currently hardcoded in source but should be moved to `Info.plist` for production builds.
+</Note>
+
+## Database Operations
+
+### Querying Tables
+
+Chapter uses the Supabase Swift SDK's query builder pattern:
+
+```swift
+// Simple query
+let users: [GroupUser] = try await supabase
+    .from("users_v2")
+    .select("*")
+    .eq("id", value: userID)
+    .execute()
+    .value
+
+// Query with filters and ordering
+let posts: [Post] = try await supabase
+    .from("posts")
+    .select("*, creator:users_v2(*)")
+    .eq("group_id", value: groupID)
+    .order("created_at", ascending: false)
+    .limit(20)
+    .execute()
+    .value
+```
+
+### RPC Functions
+
+For complex queries, Chapter uses PostgreSQL functions via RPC:
+
+```swift SupabaseMethods.swift:55-78
+static func getMultipleCoursesV2(ids: [UUID], userLat: Double?, userLon: Double?) async throws -> [CourseV2Short] {
+    let supabase = AuthManager.shared.supabase
+    do {
+        struct CourseParams: Codable {
+            let courseIds: [String]
+            let user_lat: Double?
+            let user_lon: Double?
+        }
+        let response = try await supabase.rpc(
+            "get_multiple_courses", 
+            params: ["params": CourseParams(
+                courseIds: ids.map({$0.uuidString}), 
+                user_lat: userLat, 
+                user_lon: userLon
+            )]
+        ).execute()
+        
+        let courses = try JSONDecoder().decode([CourseV2Short].self, from: response.data)
+        return courses
+    } catch {
+        ErrorService.shared.showError(title: "Error Fetching Courses", description: error.localizedDescription)
+        throw error
+    }
+}
+```
+
+### Insert Operations
+
+```swift PostsService.swift:131-157
+private func createPostAndComments(post: Post) async throws {
+    let postForInsertion = InsertPost(
+        id: post.id,
+        title: post.title,
+        type: post.type,
+        content: post.content,
+        imageURLs: post.imageURLs,
+        createdAt: post.createdAt,
+        createdBy: post.creatorID,
+        groupID: post.groupID,
+        likes: post.likes,
+        location: post.location,
+        links: post.links,
+        visibility: post.visibility,
+        source: post.source
+    )
+    
+    let postResponse = try await supabase
+        .from("posts")
+        .insert(postForInsertion)
+        .execute()
+    
+    guard postResponse.status == 200 || postResponse.status == 201 else {
+        throw NSError(
+            domain: "PostsService",
+            code: postResponse.status,
+            userInfo: [NSLocalizedDescriptionKey: "Error creating post. Status: \(postResponse.status)"]
+        )
+    }
+}
+```
+
+### Update Operations
+
+```swift
+try await supabase
+    .from("users_v2")
+    .update(["first_name": firstName])
+    .eq("id", value: currentUserId)
+    .execute()
+```
+
+### Delete Operations
+
+```swift PostsService.swift:236-240
+try await supabase
+    .from("post_likes")
+    .delete()
+    .eq("user_id", value: user.id)
+    .eq("post_id", value: post.id)
+    .execute()
+```
+
+## Date Handling
+
+Supabase returns dates in ISO8601 format. Chapter uses custom date decoders to handle fractional seconds:
+
+```swift SupabaseMethods.swift:25-46
+func setupUserDecoder() {
+    SupabaseMethods.userDecoder.dateDecodingStrategy = .custom { decoder in
+        let container = try decoder.singleValueContainer()
+        let dateString = try container.decode(String.self)
+        
+        // Attempt first with fractional seconds
+        let isoFormatterWithFractional = ISO8601DateFormatter()
+        isoFormatterWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withTimeZone]
+        if let date = isoFormatterWithFractional.date(from: dateString) {
+            return date
+        }
+        
+        // Attempt without fractional seconds
+        let isoFormatterWithoutFractional = ISO8601DateFormatter()
+        isoFormatterWithoutFractional.formatOptions = [.withInternetDateTime, .withTimeZone]
+        if let date = isoFormatterWithoutFractional.date(from: dateString) {
+            return date
+        }
+        
+        throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date string \(dateString)")
+    }
+}
+```
+
+<Tip>
+Use the shared `SupabaseMethods.userDecoder` for consistent date parsing across the app.
+</Tip>
+
+## Error Handling
+
+Chapter implements comprehensive error handling for database operations:
+
+```swift
+do {
+    let response = try await supabase
+        .from("users_v2")
+        .select("*")
+        .execute()
+    
+    guard response.status == 200 else {
+        throw NSError(
+            domain: "SupabaseError", 
+            code: response.status, 
+            userInfo: [NSLocalizedDescriptionKey: "Failed to fetch users. Status: \(response.status)"]
+        )
+    }
+    
+    let users = try decoder.decode([GroupUser].self, from: response.data)
+    return users
+    
+} catch {
+    ErrorService.shared.showError(
+        title: "Database Error",
+        description: error.localizedDescription
+    )
+    throw error
+}
+```
+
+## SupabaseMethods Helper Class
+
+Chapter centralizes common database operations in `SupabaseMethods.swift`. This singleton provides reusable methods for fetching entities:
+
+```swift
+// Fetch multiple courses
+let courses = try await SupabaseMethods.getMultipleCoursesV2(
+    ids: courseIDs,
+    userLat: userLocation?.latitude,
+    userLon: userLocation?.longitude
+)
+
+// Fetch university details
+let university = try await SupabaseMethods.getUniV2(id: universityID)
+
+// Fetch user follows
+let followedUsers = try await SupabaseMethods.getUserFollows()
+
+// Fetch group details
+let group = try await SupabaseMethods.getGroupDetails(group: groupID)
+```
+
+### Benefits of Centralization
+
+- **Consistency**: All database calls use the same error handling and decoding logic
+- **Reusability**: Common queries are written once and used everywhere
+- **Maintenance**: Database schema changes require updates in one place
+- **Testing**: Easier to mock and test database interactions
+
+## Best Practices
+
+### 1. Always Handle Errors
+
+Never silently fail on database operations:
+
+```swift
+// ✅ Good
+try await supabase.from("posts").insert(post).execute()
+
+// ❌ Bad
+try? await supabase.from("posts").insert(post).execute()
+```
+
+### 2. Use Codable Models
+
+Define Swift structs that match your database schema:
+
+```swift
+struct GroupUser: Codable {
+    let id: UUID
+    let firstName: String
+    let lastName: String
+    let email: String
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case firstName = "first_name"
+        case lastName = "last_name"
+        case email
+    }
+}
+```
+
+### 3. Check Response Status
+
+Always validate the HTTP response status:
+
+```swift
+let response = try await supabase.from("table").select().execute()
+guard response.status == 200 else {
+    throw NSError(domain: "SupabaseError", code: response.status)
+}
+```
+
+### 4. Use RPC for Complex Queries
+
+PostgreSQL functions provide better performance for:
+- Multi-table joins
+- Computed fields
+- Complex filtering logic
+- Aggregations
+
+### 5. Implement Retry Logic
+
+For critical operations, implement exponential backoff:
+
+```swift
+func fetchWithRetry<T>(_ operation: () async throws -> T, maxAttempts: Int = 3) async throws -> T {
+    var lastError: Error?
+    
+    for attempt in 1...maxAttempts {
+        do {
+            return try await operation()
+        } catch {
+            lastError = error
+            if attempt < maxAttempts {
+                try await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt))) * 1_000_000_000)
+            }
+        }
+    }
+    
+    throw lastError!
+}
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/technical/authentication">
+    Learn about the auth flow
+  </Card>
+  <Card title="Real-time Features" icon="bolt" href="/technical/real-time-features">
+    Implement live updates
+  </Card>
+  <Card title="Data Services" icon="database" href="/technical/data-services">
+    Service layer architecture
+  </Card>
+</CardGroup>

@@ -1,0 +1,378 @@
+---
+title: Navigation System
+description: Deep dive into Chapter's navigation architecture including NavigationRouter, deep linking, and modal presentation patterns
+---
+
+## Overview
+
+Chapter uses a centralized navigation system built on SwiftUI's `NavigationStack` with custom routing logic to handle deep links, push notifications, and programmatic navigation from anywhere in the app—including sheets and fullScreenCovers.
+
+## NavigationRouter Architecture
+
+### Core Router
+
+The `NavigationRouter` (`NavigationRouter.swift:21`) is a singleton `ObservableObject` that manages all navigation state:
+
+```swift NavigationRouter.swift
+@MainActor
+final class NavigationRouter: ObservableObject {
+    static let shared = NavigationRouter()
+    
+    // Main navigation path
+    @Published var navigationPath = NavigationPath()
+    
+    // Tab selection
+    @Published var selectedTab: TabSelectionUniPrepStage = .hub
+    
+    // Tab bar visibility
+    @Published var showTabBar: Bool = true
+    
+    // Pending navigation after modal dismiss
+    @Published private(set) var pendingNavigation: AppDestination?
+    
+    // Modal state tracking
+    @Published var isSheetPresented: Bool = false
+    @Published var isFullScreenCoverPresented: Bool = false
+}
+```
+
+### Navigation from Modals
+
+The router handles a common SwiftUI challenge: navigating from sheets/fullScreenCovers. When navigation is triggered from a modal, the router:
+
+1. Stores the destination as `pendingNavigation`
+2. Dismisses the modal via registered closure
+3. Executes the navigation after dismissal
+
+```swift NavigationRouter.swift
+func navigate(to destination: AppDestination) {
+    // If we're in a modal context, dismiss and navigate
+    if isSheetPresented || isFullScreenCoverPresented {
+        pendingNavigation = destination
+        navPathCountBeforeModalNavigation = navigationPath.count
+        shouldReopenModal = true
+        
+        // Dismiss the modal
+        dismissCurrentModal?()
+    } else {
+        // Direct navigation
+        navigationPath.append(destination)
+    }
+}
+```
+
+### Modal Re-opening Support
+
+The router can reopen modals after navigating back, preserving the user's context:
+
+```swift NavigationRouter.swift
+func checkForModalReopen() {
+    // If we navigated from a modal and popped back to the original count
+    if shouldReopenModal && navigationPath.count <= navPathCountBeforeModalNavigation {
+        shouldReopenModal = false
+        
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            reopenModal?()
+        }
+    }
+}
+```
+
+## AppDestination Enum
+
+All navigation destinations are defined in a single enum (`DeepLinkManager.swift:14`):
+
+```swift DeepLinkManager.swift
+enum AppDestination: Hashable, Equatable {
+    case courseDetail(UUID)
+    case userProfile(GroupUser)
+    case groupProfile(GroupChat)
+    case chat(UUID)
+    case university(Int)
+    case accommodationDetail(UUID)
+    case compare(CompareNavOptions)
+    case leaderboards(LeaderboardOptions)
+    case careerPaths
+    case inbox
+    // ... 100+ destinations
+}
+```
+
+### URL Generation
+
+Each destination can generate a shareable deep link URL:
+
+```swift DeepLinkManager.swift
+var url: URL? {
+    switch self {
+    case .courseDetail(let courseID):
+        return URL(string: "chapter://course/\(courseID.uuidString)")
+    case .userProfile(let user):
+        return URL(string: "chapter://profile/\(user.id.uuidString)")
+    case .chat(let groupID):
+        return URL(string: "chapter://chat/\(groupID.uuidString)")
+    // ...
+    }
+}
+```
+
+## Deep Link Manager
+
+The `DeepLinkManager` (`DeepLinkManager.swift:493`) handles incoming URLs and push notifications:
+
+```swift DeepLinkManager.swift
+class DeepLinkManager: ObservableObject {
+    @Published var pendingDestination: AppDestination?
+    static let shared = DeepLinkManager()
+    
+    func handle(url: URL) {
+        guard let destination = parseURL(url) else { return }
+        pendingDestination = destination
+    }
+    
+    func handle(notification: UNNotificationContent) {
+        guard let destination = parseNotification(notification) else { return }
+        pendingDestination = destination
+    }
+}
+```
+
+### URL Parsing
+
+Deep links follow the pattern `chapter://[host]/[id]`:
+
+```swift DeepLinkManager.swift
+private func parseURL(_ url: URL) -> AppDestination? {
+    guard url.scheme == "chapter",
+          let host = url.host,
+          url.pathComponents.count >= 2 else { return nil }
+    
+    let id = url.pathComponents[1]
+    
+    switch host {
+    case "profile":
+        if let user = fetchUser(by: id) {
+            return .userProfile(user)
+        }
+    case "group":
+        if let group = fetchGroup(by: id) {
+            return .groupProfile(group)
+        }
+    case "course":
+        if let uuid = UUID(uuidString: id) {
+            return .courseDetail(uuid)
+        }
+    }
+    
+    return nil
+}
+```
+
+## Master Tab View Integration
+
+The `MasterTabView` (`MasterTabView.swift:11`) sets up the navigation stack and destination routing:
+
+```swift MasterTabView.swift
+NavigationStack(path: $navigationRouter.navigationPath) {
+    tabContent
+        .environment(\.navigate, navigate)
+        .navigationDestination(for: AppDestination.self) { destination in
+            destinationView(for: destination)
+                .environment(\.navigate, navigate)
+                .task {
+                    withAnimation {
+                        showTabBar = false
+                    }
+                }
+        }
+}
+.onReceive(appContainer.deepLinkManager.$pendingDestination) { destination in
+    if let destination = destination {
+        navigate(to: destination)
+        appContainer.deepLinkManager.pendingDestination = nil
+    }
+}
+```
+
+### Destination View Builder
+
+A large switch statement maps destinations to SwiftUI views (`MasterTabView.swift:643`):
+
+```swift MasterTabView.swift
+@ViewBuilder
+private func destinationView(for destination: AppDestination) -> some View {
+    switch destination {
+    case .userProfile(let user):
+        LazyView(UserV2ProfileView(user: user))
+            .navigationBarBackButtonHidden()
+            
+    case .courseDetail(let courseID):
+        LazyView(CourseHingeProfile(
+            courseID: courseID,
+            compatibilityScore: nil,
+            distance: nil
+        ))
+        .navigationBarBackButtonHidden()
+        
+    case .chat(let groupID):
+        LazyView(ChatView(
+            id: groupID,
+            fullScreen: true,
+            background: LinearGradient(colors: [colorScheme.getColor()]),
+            backgroundOpacity: 1
+        ))
+        
+    // ... 100+ cases
+    }
+}
+```
+
+<Note>
+Views are wrapped in `LazyView` to prevent premature initialization and improve navigation performance.
+</Note>
+
+## Environment-Based Navigation
+
+The app provides navigation actions via SwiftUI environment values:
+
+```swift DeepLinkManager.swift
+struct NavigationEnvironmentKey: EnvironmentKey {
+    static let defaultValue: (AppDestination) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var navigate: (AppDestination) -> Void {
+        get { self[NavigationEnvironmentKey.self] }
+        set { self[NavigationEnvironmentKey.self] = newValue }
+    }
+}
+```
+
+Usage in views:
+
+```swift
+@Environment(\.navigate) var navigate
+
+Button("View Course") {
+    navigate(.courseDetail(courseId))
+}
+```
+
+## Tab Switching
+
+Tabs are managed through environment injection:
+
+```swift DeepLinkManager.swift
+extension EnvironmentValues {
+    var switchTab: (TabSelectionUniPrepStage) -> Void {
+        get { self[TabSwitcherKey.self] }
+        set { self[TabSwitcherKey.self] = newValue }
+    }
+}
+```
+
+Tab enum definition:
+
+```swift
+enum TabSelectionUniPrepStage: String, CaseIterable {
+    case hub
+    case search
+    case map
+    case lists
+    case calendar
+    case feed
+    case connect
+    case arcade
+}
+```
+
+## Router-Aware Modal Modifiers
+
+Custom view modifiers ensure modals work correctly with the router (`NavigationRouter.swift:192`):
+
+```swift NavigationRouter.swift
+struct RouterAwareSheet<SheetContent: View>: ViewModifier {
+    @EnvironmentObject private var router: NavigationRouter
+    @Binding var isPresented: Bool
+    let sheetContent: () -> SheetContent
+    
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: $isPresented) {
+                router.isSheetPresented = false
+                router.executePendingNavigation()
+            } content: {
+                sheetContent()
+                    .environmentObject(router)
+                    .onAppear {
+                        router.isSheetPresented = true
+                        router.registerModalHandlers(
+                            dismiss: { isPresented = false },
+                            reopen: { isPresented = true }
+                        )
+                    }
+            }
+    }
+}
+
+extension View {
+    func routerSheet<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        modifier(RouterAwareSheet(isPresented: isPresented, sheetContent: content))
+    }
+}
+```
+
+## Game-First Mode Navigation
+
+When in game mode, tab switches translate to zone navigation:
+
+```swift NavigationRouter.swift
+func switchToTab(_ tab: TabSelectionUniPrepStage) {
+    // In game-first mode, translate tab switches to game zone navigation
+    if GameManager.shared.isGameFirstMode {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedTab = tab
+        }
+        return
+    }
+    
+    withAnimation(.easeInOut(duration: 0.2)) {
+        selectedTab = tab
+    }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always use AppDestination enum">
+    Never hardcode navigation strings. Always add new destinations to the `AppDestination` enum to maintain type safety.
+  </Accordion>
+  
+  <Accordion title="Handle modal navigation correctly">
+    Use `routerSheet` and `routerFullScreenCover` modifiers instead of native `.sheet()` and `.fullScreenCover()` when navigation from the modal is needed.
+  </Accordion>
+  
+  <Accordion title="Implement URL parsing for deep links">
+    When adding a new destination, implement both the `url` computed property and parsing logic in `DeepLinkManager.parseURL()`.
+  </Accordion>
+  
+  <Accordion title="Use LazyView for destinations">
+    Wrap destination views in `LazyView` to prevent premature initialization and improve performance.
+  </Accordion>
+</AccordionGroup>
+
+## Related Components
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="building" href="/technical/architecture-overview">
+    Learn about the overall app architecture
+  </Card>
+  <Card title="Data Models" icon="database" href="/technical/data-models">
+    Understand the data structures passed between views
+  </Card>
+</CardGroup>

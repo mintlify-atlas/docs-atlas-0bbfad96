@@ -1,0 +1,482 @@
+---
+title: 'Authentication'
+description: 'Understand how Chapter implements passwordless authentication using Supabase Auth with email magic links and OTP verification'
+---
+
+## Overview
+
+Chapter uses **passwordless authentication** via Supabase Auth. Users sign in with email magic links and verify their accounts with one-time passwords (OTP).
+
+### Authentication Flow
+
+1. User enters email and personal details
+2. Backend creates account with auto-generated secure password
+3. User receives verification email with OTP code
+4. User enters OTP to verify email ownership
+5. Session is established and user gains access
+
+## AuthManager
+
+The `AuthManager` class (located at `New Onboarding Flow/Services/AuthManager.swift`) is the central authentication service:
+
+```swift AuthManager.swift:16-17
+final class AuthManager: ObservableObject, Sendable {
+    static let shared = AuthManager()
+```
+
+### Key Responsibilities
+
+- User registration and sign-in
+- Session management
+- Email verification
+- User data loading
+- Profile updates
+- Sign-out
+
+## User Registration
+
+The sign-up process creates a Supabase Auth user and inserts a record into the `users_v2` table:
+
+```swift AuthManager.swift:291-403
+func signUp() async throws -> Bool {
+    guard !isLoading else {
+        return false
+    }
+    
+    DispatchQueue.main.async {
+        self.isLoading = true
+    }
+    
+    defer {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.isLoading = false
+        }
+    }
+    
+    do {
+        let authResponse = try await supabase.auth.signUp(
+            email: email,
+            password: generateSecurePassword()
+        )
+        
+        if checkIfEmailExists(res: authResponse) {
+            DispatchQueue.main.async { [weak self] in
+                self?.errorMessage = "This email is already registered. Please use a different email or sign in."
+                self?.showErrorAlert = true
+                ErrorService.shared.showError(
+                    title: "Email Already Registered", 
+                    description: "This email is already registered. Please use a different email or sign in."
+                )
+            }
+            return false
+        }
+        
+        // Store the user ID for future use
+        let userId = authResponse.user.id
+        
+        var dateComponents = DateComponents()
+        dateComponents.day = Int(selectedDay)
+        dateComponents.month = Int(selectedMonth)
+        dateComponents.year = Int(selectedYear)
+        dateComponents.hour = 12
+        dateComponents.timeZone = TimeZone.current
+        let dobDate = Calendar.current.date(from: dateComponents)
+        
+        let initialUser = GroupUser(
+            id: userId, 
+            createdAt: Date(), 
+            firstName: firstName, 
+            lastName: lastName, 
+            email: email, 
+            dob: dobDate, 
+            isVerified: false, 
+            uni_id: university != nil ? university!.id : nil, 
+            courseID: course != nil ? course!.id : nil, 
+            accomID: accom != nil ? accom!.id : nil, 
+            isPrivate: false, 
+            onboardingStage: 8, 
+            enrollmentStatus: JourneyStage2.toEnrollmentStatus(stage: selectedStageID), 
+            uniPlan: nil
+        )
+        
+        await MainActor.run {
+            currentUser = initialUser
+        }
+        
+        try await supabase.from("users_v2").insert(initialUser).execute()
+        try await uploadFirstStageData(id: userId)
+        try await hubButtonLogic()
+        
+        Mixpanel.mainInstance().identify(distinctId: userId.uuidString)
+        Mixpanel.mainInstance().people.set(properties: ["$email": email])
+        Mixpanel.mainInstance().track(event: "Onboarding Initial Sign Up")
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.idBackup = userId.uuidString
+            self?.currentUser = initialUser
+            self?.isPendingVerification = true
+            self?.emailAddressBackup = self?.email ?? ""
+            // Store backup data for verification state
+        }
+        return true
+    } catch {
+        print(error)
+        DispatchQueue.main.async { [weak self] in
+            self?.errorMessage = "Error signing up: \(error.localizedDescription)."
+            self?.showErrorAlert = true
+            ErrorService.shared.showError(title: "Error signing up", description: error.localizedDescription)
+        }
+        return false
+    }
+}
+```
+
+<Note>
+The `generateSecurePassword()` function creates a random password that the user never sees. This enables passwordless authentication while still having a secure Supabase Auth account.
+</Note>
+
+## Email Verification
+
+After sign-up, users must verify their email with an OTP code:
+
+```swift AuthManager.swift:868-912
+func verifyEmail(with code: String) async throws {
+    // Use backed-up email if in pending verification state
+    let emailToVerify = isPendingVerification ? emailAddressBackup : email
+    
+    guard !emailToVerify.isEmpty else {
+        DispatchQueue.main.async {
+            ErrorService.shared.showError(
+                title: "Verification Error", 
+                description: "No email address found for verification."
+            )
+        }
+        throw NSError(
+            domain: "AuthManager", 
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "No email address found for verification"]
+        )
+    }
+    
+    // Verify OTP with Supabase
+    try await supabase.auth.verifyOTP(
+        email: emailToVerify, 
+        token: code, 
+        type: .signup
+    )
+    
+    // Clear pending verification state
+    DispatchQueue.main.async { [self] in
+        isPendingVerification = false
+        emailAddressBackup = ""
+        emailSentAtDate = ""
+    }
+    
+    struct EmailConfirm: Encodable {
+        let id: UUID
+        let confirmed_at: Date = Date()
+        let email: String
+        let first_name: String
+    }
+    
+    // Load user data
+    try await loadCurrentUser()
+    
+    // Clear remaining backup data
+    DispatchQueue.main.async { [self] in
+        idBackup = ""
+        nameBackup = ""
+        dobBackup = ""
+    }
+    
+    guard let user = currentUser else { return }
+    try await supabase
+        .from("users_v2_email_confirms")
+        .insert(EmailConfirm(
+            id: user.id, 
+            email: user.email, 
+            first_name: user.firstName
+        ))
+        .execute()
+}
+```
+
+### Resending Verification Code
+
+```swift AuthManager.swift:914-918
+func resendVerificationCode() async throws {
+    try await supabase.auth.resend(
+        email: email, 
+        type: .signup
+    )
+}
+```
+
+## Magic Link Sign-In
+
+For returning users, Chapter supports magic link authentication:
+
+```swift AuthManager.swift:602-611
+func signIn(email: String) async throws {
+    do {
+        try await supabase.auth.signInWithOTP(email: email)
+        print("Magic link sent to \(email)")
+    } catch {
+        ErrorService.shared.showError(
+            title: "Error sending magic link", 
+            description: error.localizedDescription
+        )
+        throw error
+    }
+}
+```
+
+### Verifying Magic Link
+
+```swift AuthManager.swift:613-640
+func verifySignIn(email: String, token: String) async throws {
+    do {
+        try await supabase.auth.verifyOTP(
+            email: email, 
+            token: token, 
+            type: .magiclink
+        )
+        
+        DispatchQueue.main.async { [self] in
+            emailAddressBackup = ""
+            idBackup = ""
+            nameBackup = ""
+            dobBackup = ""
+        }
+        
+        try await loadCurrentUser()
+        
+        print("✅ Device token saved successfully to Supabase")
+        print("Successfully signed in, current user: \(String(describing: currentUser))")
+    } catch {
+        ErrorService.shared.showError(
+            title: "Error verifying OTP", 
+            description: error.localizedDescription
+        )
+        throw error
+    }
+}
+```
+
+## Loading User Data
+
+After authentication, the app loads the complete user profile:
+
+```swift AuthManager.swift:405-499
+func loadCurrentUser() async throws {
+    do {
+        // 1. Fetch essential user data
+        let user = try await supabase.auth.session.user
+        let response = try await supabase.rpc(
+            "get_users_from_ids",
+            params: ["p_user_ids": [isPendingVerification ? idBackup : user.id.uuidString]]
+        ).execute()
+        
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        
+        let decodedUsers = try decoder.decode([GroupUser].self, from: response.data)
+        guard let userDecoded = decodedUsers.first else {
+            ErrorService.shared.showError(
+                title: "Error loading user",
+                description: "Decoding error: Decoded user array is empty."
+            )
+            return
+        }
+        
+        // 2. Identify user in analytics
+        Mixpanel.mainInstance().identify(distinctId: userDecoded.id.uuidString)
+        
+        // 3. Update UI properties on main thread
+        await MainActor.run {
+            self.currentStep = JourneyOnboardingFlow.OnboardingStep(index: userDecoded.onboardingStage) ?? .greeting
+            self.currentUser = userDecoded
+            self.email = userDecoded.email
+            self.firstName = userDecoded.firstName
+            self.lastName = userDecoded.lastName
+            self.dateOfBirth = userDecoded.dob
+            self.profilePictureURL = userDecoded.profilePictureURL.flatMap(URL.init)
+            self.enrollmentStatus = userDecoded.enrollmentStatus
+            self.accomStage = userDecoded.accomStage
+            self.university = userDecoded.uni
+            self.avatarConfig = userDecoded.avatar ?? .default
+            
+            // Update match data managers
+            if let matchData = userDecoded.matchData {
+                GradesV2Manager.shared.userGrades = matchData.grades
+                InterestsSelectionModel.shared.selectedInterests = Set(matchData.interests)
+                SportsSelectionModel.shared.selectedSports = Set(matchData.sports)
+                
+                if let regions = matchData.regions {
+                    RegionFilterManager.shared.selectedRegions = Set(regions)
+                }
+                
+                if let latitude = matchData.latitude,
+                   let longitude = matchData.longitude,
+                   let distance = matchData.distance {
+                    MatchDistanceManager.shared.userLocation = CLLocationCoordinate2D(
+                        latitude: latitude,
+                        longitude: longitude
+                    )
+                    MatchDistanceManager.shared.maxDistance = Double(distance)
+                }
+                
+                MatchUniPrefs.shared.selectedPriorities = matchData.top3Preferences
+            }
+        }
+        
+        // 4. Trigger immediate notifications and load services
+        NotificationManager.shared.onUserSignedIn()
+        await ProgressManagerV2.shared.userLoggedIn(
+            yearID: userDecoded.yearID, 
+            stageID: userDecoded.stageID, 
+            derivedStage: userDecoded.derivedStage()
+        )
+        await loadBlockedUsers()
+        await BudgetService.shared.loadBudget()
+        
+        // 5. Load additional data in background (non-blocking)
+        Task {
+            await loadUserAdditionalData(userDecoded)
+        }
+        
+    } catch {
+        throw error
+    }
+}
+```
+
+<Tip>
+User data loading is split into critical (blocking) and supplementary (background) data to optimize startup performance.
+</Tip>
+
+## Session Management
+
+Supabase automatically manages auth sessions. Access the current session:
+
+```swift
+let session = try await supabase.auth.session
+let user = session.user
+```
+
+### Session Persistence
+
+Supabase SDK handles session persistence automatically using the iOS Keychain. Sessions remain valid across app launches.
+
+## Sign Out
+
+```swift AuthManager.swift:830-860
+func signOut() async throws {
+    guard let userId = currentUser?.id else { return }
+    Task {
+        do {
+            DispatchQueue.main.async {
+                self.isLoading = true
+            }
+            
+            await ProgressManagerV2.shared.userLoggedOut()
+            await NotificationManager.shared.onUserSigningOut()
+            
+            try await supabase.auth.signOut()
+            
+            Mixpanel.mainInstance().track(
+                event: "User Signed Out", 
+                properties: ["user_id": userId.uuidString]
+            )
+            Mixpanel.mainInstance().reset()
+            
+            resetData()
+            
+            NotificationCenter.default.post(
+                name: NSNotification.Name("userDidLogout"), 
+                object: nil
+            )
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                self.isLoading = false
+            }
+            print("successfully signed out")
+        } catch {
+            DispatchQueue.main.async {
+                self.errorMessage = "Error Signing User Out: \(error.localizedDescription)."
+                self.showErrorAlert = true
+                ErrorService.shared.showError(
+                    title: "Error Signing User Out", 
+                    description: "\(error.localizedDescription)"
+                )
+            }
+            print("Error Signing User Out\(error)")
+        }
+    }
+}
+```
+
+## Verification State Persistence
+
+Chapter stores verification state in `@AppStorage` to handle app restarts during onboarding:
+
+```swift AuthManager.swift:88-99
+@AppStorage("isPendingVerification") var storedIsPendingVerification: Bool = false
+@Published var isPendingVerification: Bool = false {
+    didSet {
+        storedIsPendingVerification = isPendingVerification
+    }
+}
+@AppStorage("emailAddressForPendingVerification") var emailAddressBackup: String = ""
+@AppStorage("idForPendingVerification") var idBackup: String = ""
+@AppStorage("nameForPendingVerification") var nameBackup: String = ""
+@AppStorage("dobForPendingVerification") var dobBackup: String = ""
+@AppStorage("emailSentAtDate") var emailSentAtDate: String = ""
+```
+
+## Security Considerations
+
+### Password Generation
+
+Chapter generates secure random passwords for Supabase Auth accounts:
+
+```swift
+private func generateSecurePassword() -> String {
+    let length = 32
+    let characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+    return String((0..<length).map{ _ in characters.randomElement()! })
+}
+```
+
+### Email Validation
+
+Always validate emails before sending OTP codes:
+
+```swift
+func isValidEmail(_ email: String) -> Bool {
+    let emailRegex = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
+    let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailRegex)
+    return emailPredicate.evaluate(with: email)
+}
+```
+
+### Duplicate Account Detection
+
+```swift AuthManager.swift:862-866
+func checkIfEmailExists(res: AuthResponse) -> Bool {
+    // Check if identities exist and aren't empty
+    // If there are no identities, the email might already be in use
+    return res.user.identities == nil || res.user.identities!.isEmpty
+}
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Supabase Integration" icon="database" href="/technical/supabase-integration">
+    Database operations
+  </Card>
+  <Card title="Real-time Features" icon="bolt" href="/technical/real-time-features">
+    Live presence and chat
+  </Card>
+</CardGroup>

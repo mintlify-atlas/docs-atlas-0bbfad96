@@ -1,0 +1,443 @@
+---
+title: Data Models
+description: Core data structures, Codable types, and domain models used throughout the Chapter iOS app
+---
+
+## Overview
+
+Chapter uses Swift's `Codable` protocol extensively for JSON serialization with Supabase. All models follow strict naming conventions and include example data for testing.
+
+## Course Models
+
+### Course_V2
+
+The primary course data model (`Course_v2.swift:12`):
+
+```swift Course_v2.swift
+struct Course_V2: Identifiable, Hashable, Codable {
+    var id: UUID
+    var name: String
+    var uniID: Int
+    var url: String
+    var courseYears: Int?
+    var courseMode: CourseModeV2
+    var placement: CourseOptionalCompulsory
+    var yearAbroad: CourseOptionalCompulsory
+    var foundation: CourseOptionalCompulsory
+    var distanceLearning: CourseOptionalCompulsory
+    var courseID: String?
+    var ucasCode: String?
+    
+    var overview: String?
+    var careerProspects: String?
+    
+    var cat1Decode: Int
+    var cat2Decode: Int?
+    var cat3Decode: Int?
+    var cat4Decode: Int?
+    
+    var ratings: CourseRatings?
+    var campusIDs: [CampusV2]?
+    var qualification: CourseQualification
+    var nssScores: NSSScores?
+    var graduateOpportunities: CourseGraduateOpportunities?
+    var ucasPoints: CourseUCASPoints?
+    var modules: [CourseModuleContainer]
+    var costWorkings: CourseV2CostWorkings?
+}
+```
+
+### Computed Category Properties
+
+Courses decode category IDs and expose them as enums:
+
+```swift Course_v2.swift
+var cat1: CourseFurtherCategory {
+    return CourseFurtherCategory(id: cat1Decode)!
+}
+
+var cat2: CourseFurtherCategory? {
+    guard let cat2Decode else { return nil }
+    return CourseFurtherCategory(id: cat2Decode)
+}
+```
+
+### University Name Helper
+
+```swift Course_v2.swift
+var universityName: UniversityName {
+    return UniversityName(id: uniID)!
+}
+```
+
+### CodingKeys for Snake Case
+
+Supabase uses snake_case, Swift uses camelCase:
+
+```swift Course_v2.swift
+enum CodingKeys: String, CodingKey {
+    case id, name
+    case uniID = "uni_id"
+    case courseYears = "course_years"
+    case courseMode = "course_mode"
+    case yearAbroad = "year_abroad"
+    case distanceLearning = "distance_learning"
+    case campusIDs = "campus_ids"
+    case nssScores = "nss_scores"
+    case graduateOpportunities = "graduate_opportunities"
+    case ucasPoints = "ucas_points"
+    case ucasCode = "ucas_code"
+    case careerProspects = "career_prospects"
+    case costWorkings = "cost_workings"
+    // ...
+}
+```
+
+## Supporting Course Types
+
+### CourseRatings
+
+```swift
+struct CourseRatings: Hashable, Codable {
+    var value: Int      // Value for money
+    var job: Int        // Job prospects
+    var entry: Int      // Entry standards
+    var career: Int     // Career after 15 months
+    var student: Int    // Student satisfaction
+    var uni: Int        // University rating
+    var overall: Int    // Overall rating
+}
+```
+
+### NSSScores (National Student Survey)
+
+```swift
+struct NSSScores: Codable, Hashable {
+    let nssq1: Int?     // Teaching quality
+    let nssq2: Int?     // Learning opportunities
+    // ... up to nssq28
+    
+    let nssq1_percentile: Double?
+    let nssq2_percentile: Double?
+    // ... percentile rankings
+    
+    let nss_comparisons: InlineCourseComparisons?
+}
+```
+
+### GraduateOpportunities
+
+```swift
+struct CourseGraduateOpportunities: Codable, Hashable {
+    let continuation: Int?
+    
+    let medianGradSalary15Months: Int?
+    let lqGradSalary15Months: Int?
+    let uqGradSalary15Months: Int?
+    
+    let medianGradSalary3Years: Int?
+    let medianGradSalary5Years: Int?
+    
+    let workStudyPercent15Months: Int?
+    let unemployedPercent15Months: Int?
+    let workPercent15Months: Int?
+    
+    let gradJobMeaningfulPercent: Int?
+    let gradJobFuturePlansPercent: Int?
+    let gradJobLearntFromDegreePercent: Int?
+    
+    let salaryComparisons: InlineCourseComparisons?
+}
+```
+
+## Enums and Categories
+
+### CourseFurtherCategory
+
+Represents subject areas (`Misc.swift`):
+
+```swift
+enum CourseFurtherCategory: Int, CaseIterable, Codable {
+    case accountingFinance = 1
+    case aeronauticalAerospaceEngineering = 2
+    case africanMiddleEasternStudies = 3
+    case agricultureForestry = 4
+    case americanStudies = 5
+    // ... 100+ categories
+    
+    var displayName: String {
+        switch self {
+        case .accountingFinance: return "Accounting & Finance"
+        case .computerScience: return "Computer Science"
+        // ...
+        }
+    }
+}
+```
+
+### CourseOptionalCompulsory
+
+```swift
+enum CourseOptionalCompulsory: Int, Codable {
+    case none = 0
+    case optional = 1
+    case compulsory = 2
+}
+```
+
+### CourseModeV2
+
+```swift
+enum CourseModeV2: Int, Codable {
+    case fullTime = 0
+    case partTime = 1
+    case sandwich = 2
+}
+```
+
+### CourseQualification
+
+```swift
+enum CourseQualification: String, Codable, CaseIterable {
+    case BA
+    case BSc
+    case BEng
+    case LLB
+    case MBChB
+    case MEng
+    case MSci
+    case FdA
+    case FdSc
+    case HND
+    case CertHE
+    case DipHE
+}
+```
+
+## User Models
+
+### GroupUser
+
+Represents a user profile:
+
+```swift
+struct GroupUser: Identifiable, Hashable, Codable {
+    let id: UUID
+    var username: String
+    var firstName: String?
+    var lastName: String?
+    var bio: String?
+    var profilePicture: String?
+    var enrollmentStatus: EnrollmentStatus?
+    var onboardingStage: Int?
+    var uni_id: Int?
+    var course_id: String?
+    var homeCountry: String?
+    
+    var displayName: String {
+        if let firstName, let lastName {
+            return "\(firstName) \(lastName)"
+        }
+        return username
+    }
+}
+```
+
+### EnrollmentStatus
+
+```swift
+enum EnrollmentStatus: String, Codable, CaseIterable {
+    case prospect       // Looking for courses
+    case offerHolder    // Has university offers
+    case enrolled       // Currently at university
+    case graduate       // Graduated
+    case dropout        // Left university
+}
+```
+
+## Group Models
+
+### GroupChat
+
+```swift
+struct GroupChat: Identifiable, Hashable, Codable {
+    let id: UUID
+    var name: String
+    var description: String?
+    var groupType: GroupType
+    var members: [UUID]?
+    var adminIds: [UUID]?
+    var createdAt: Date?
+    var lastMessageAt: Date?
+    var icon: String?
+    var isPrivate: Bool
+}
+```
+
+### GroupType
+
+```swift
+enum GroupType: String, Codable {
+    case course         // Course-specific group
+    case university     // University-wide group
+    case society        // Student society
+    case accommodation  // Accommodation building
+    case custom         // User-created group
+    case dm             // Direct message
+}
+```
+
+## Location Models
+
+### CampusV2
+
+```swift
+struct CampusV2: Identifiable, Hashable, Codable {
+    let id: UUID
+    let uniID: Int
+    let campusName: String
+    let campusLat: Double?
+    let campusLon: Double?
+    let city: City?
+    let images: [String]?
+    let postcode: String?
+}
+```
+
+### City
+
+```swift
+struct City: Identifiable, Hashable, Codable {
+    let id: UUID
+    let name: String
+    let region: String?
+    let latitude: Double?
+    let longitude: Double?
+    let population: Int?
+    let description: String?
+}
+```
+
+## Example Data Pattern
+
+All models include static example data for SwiftUI previews:
+
+```swift Course_v2.swift
+static let example1 = Course_V2(
+    id: UUID(uuidString: "add6fd43-95b7-4ae1-a37e-348fa44cbc60")!,
+    name: "Accounting and Finance",
+    uniID: 43,
+    url: "https://www.lse.ac.uk/...",
+    courseYears: 4,
+    courseMode: .fullTime,
+    placement: .optional,
+    yearAbroad: .optional,
+    foundation: .optional,
+    distanceLearning: .optional,
+    ucasCode: "N3N6",
+    overview: "Our BSc Finance is designed to...",
+    careerProspects: "On graduating, you will have...",
+    cat1Decode: CourseFurtherCategory.accountingFinance.id,
+    cat1Rank: 5,
+    ratings: CourseRatings(value: 44, job: 87, ...),
+    campusIDs: [CampusV2.campus1],
+    qualification: .BSc,
+    nssScores: NSSScores.example,
+    graduateOpportunities: CourseGraduateOpportunities.mockData,
+    ucasPoints: CourseUCASPoints.example,
+    modules: [.example1, .example2],
+    costWorkings: .example
+)
+```
+
+## Notification Models
+
+### InboxNotification
+
+```swift
+struct InboxNotification: Identifiable, Codable {
+    let id: UUID
+    let userId: UUID
+    let type: NotificationType
+    let title: String
+    let message: String
+    let isRead: Bool
+    let createdAt: Date
+    let relatedId: UUID?
+}
+```
+
+### NotificationType
+
+```swift
+enum NotificationType: String, Codable {
+    case postInteraction
+    case privateMessage
+    case groupMessage
+    case follower
+    case profileView
+    case groupJoinWelcome
+    case achievement
+    case courseUpdate
+}
+```
+
+## JSON Decoding Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use CodingKeys for snake_case">
+    Supabase uses snake_case while Swift uses camelCase. Always define `CodingKeys` enum to map between them:
+    
+    ```swift
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case courseId = "course_id"
+        case createdAt = "created_at"
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Make optional properties truly optional">
+    Use optionals (`?`) for any field that might not be present in the API response to avoid decoding errors.
+  </Accordion>
+  
+  <Accordion title="Provide example data">
+    Always include static example instances for use in SwiftUI previews and unit tests.
+  </Accordion>
+  
+  <Accordion title="Use computed properties for derived data">
+    Instead of storing redundant data, use computed properties:
+    
+    ```swift
+    var universityName: UniversityName {
+        return UniversityName(id: uniID)!
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Type Safety with Enums
+
+Chapter uses enums extensively instead of raw strings/integers:
+
+- **EnrollmentStatus**: User journey stage
+- **CourseFurtherCategory**: Subject classification
+- **GroupType**: Chat group classification
+- **NotificationType**: Notification categories
+
+This provides:
+- Compile-time safety
+- Exhaustive switch coverage
+- Autocomplete support
+- Refactoring confidence
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="building" href="/technical/architecture-overview">
+    Learn how these models fit into the overall architecture
+  </Card>
+  <Card title="Navigation System" icon="compass" href="/technical/navigation-system">
+    See how models are passed between views
+  </Card>
+</CardGroup>

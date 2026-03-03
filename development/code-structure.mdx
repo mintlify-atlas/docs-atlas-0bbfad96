@@ -1,0 +1,581 @@
+---
+title: "Code Structure"
+description: "Understanding the Chapter iOS app architecture and file organization"
+---
+
+## Overview
+
+Chapter is a SwiftUI-based iOS application targeting iOS 17.0+, built with modern Swift patterns including async/await, Combine, and dependency injection.
+
+## Project Architecture
+
+### Entry Point
+
+```swift Chapter/ChapterApp.swift
+@main
+struct ChapterApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject var snapchatManager = SnapchatManager.shared
+    let container = AppContainer.shared
+    
+    var body: some Scene {
+        WindowGroup {
+            MasterTabView(authManager: AuthManager.shared)
+                .environmentObject(container)
+                .environmentObject(snapchatManager)
+        }
+    }
+}
+```
+
+The app initializes:
+- **Firebase** for push notifications
+- **Mixpanel** for analytics
+- **TipKit** for user onboarding tips
+- **AppContainer** for dependency injection
+
+<Note>
+  See `Chapter/ChapterApp.swift:8-51` for the full initialization sequence.
+</Note>
+
+### Navigation Architecture
+
+<img src="/images/navigation-flow.png" alt="Navigation flow" />
+
+Chapter uses a centralized navigation system:
+
+#### NavigationRouter
+
+**Location:** `Chapter/Navigation/NavigationRouter.swift`
+
+```swift
+final class NavigationRouter: ObservableObject {
+    static let shared = NavigationRouter()
+    
+    @Published var navigationPath = NavigationPath()
+    @Published var selectedTab: TabSelectionUniPrepStage = .hub
+    @Published var showTabBar: Bool = true
+    @Published private(set) var pendingNavigation: AppDestination?
+    
+    func navigate(to destination: AppDestination) {
+        // Handles modal dismissal and navigation
+    }
+}
+```
+
+**Key features:**
+- Singleton pattern for global access
+- Handles navigation from sheets and fullScreenCovers
+- Manages pending navigation when dismissing modals
+- Tab bar visibility control
+
+#### AppDestination Enum
+
+The `AppDestination` enum (100+ cases) defines every routable screen:
+
+```swift
+enum AppDestination: Hashable {
+    case university(UniversityV2)
+    case course(Course_V2)
+    case groupChat(GroupChat)
+    case userProfile(GroupUser)
+    case accommodation(AccommodationV2)
+    case event(CalendarEvent)
+    case society(Society)
+    // ... 90+ more cases
+}
+```
+
+#### DeepLinkManager
+
+**Location:** `Chapter/Navigation/DeepLinkManager.swift`
+
+Handles `chapter://` URL scheme routing:
+
+```swift
+final class DeepLinkManager {
+    static let shared = DeepLinkManager()
+    
+    func handle(url: URL) {
+        // Parses URL and navigates to appropriate destination
+        // Example: chapter://university/123
+    }
+}
+```
+
+### Dependency Injection
+
+#### AppContainer
+
+**Location:** `Chapter/Navigation/AppDependencies.swift`
+
+```swift
+@MainActor
+class AppContainer: ObservableObject {
+    static let shared = AppContainer()
+    
+    // Filter ViewModels
+    @Published var searchUniFilter: UniversityV2FilterManager
+    @Published var searchCourseFilter: CourseV2FilterViewModel
+    
+    // Core Managers (NOT @Published to avoid cascade re-renders)
+    var authManager: AuthManager
+    var locationManager: DeviceLocationManager
+    var notificationManager = NotificationManager.shared
+    
+    // Data Services
+    var searchCourseDataService: CourseDataServiceV2
+    var searchUniversityDataService: UniversityDataServiceV2
+    var shortlistManager: ShortlistV2Manager
+    var whatsOnManager: WhatsOnManager
+    
+    // Auth State (only this triggers container updates)
+    @Published private(set) var isAuthenticated: Bool = false
+    @Published private(set) var userEnrollmentStatus: EnrollmentStatus?
+}
+```
+
+<Warning>
+  **Performance optimization:** Only `isAuthenticated` and `userEnrollmentStatus` are `@Published` on `AppContainer`. Other services manage their own state to prevent cascade re-renders throughout the app.
+</Warning>
+
+## Directory Structure
+
+```
+Chapter/
+├── ChapterApp.swift                 # App entry point
+├── Navigation/                      # Navigation & routing
+│   ├── NavigationRouter.swift      # Centralized navigation
+│   ├── DeepLinkManager.swift       # Deep link handling
+│   ├── AppDependencies.swift       # Dependency injection container
+│   └── OrientationManager.swift    # Screen orientation control
+├── Master Tab View/                # Main tab interface
+│   ├── MasterTabView.swift        # Tab bar controller
+│   └── TabSelectionUniPrepStage.swift
+├── Hub/                            # Widget-based hub screen
+│   ├── ChapterHubView.swift
+│   └── ChapterWidgetManager.swift
+├── Structs and Enums/             # Data models
+│   ├── University_V2.swift        # University model
+│   ├── Course_v2.swift           # Course model
+│   ├── User/                     # User models
+│   ├── Location.swift            # Location models
+│   └── Misc.swift                # Misc shared models
+├── Extensions/                    # Swift extensions
+│   ├── Colours.swift             # Custom gradients & colors
+│   ├── Extensions.swift          # General extensions
+│   ├── Numbers.swift             # Number formatting
+│   └── Shapes.swift              # Custom SwiftUI shapes
+├── Helpers/                       # Reusable UI components
+│   ├── Buttons.swift
+│   ├── LoadingIndicatorView.swift
+│   ├── SkeletonLoading.swift
+│   └── WebView.swift
+├── Search/                        # University & course search
+├── Main Feed/                     # Social feed
+├── Groups/                        # Group chats
+├── Inbox/                         # Messages & notifications
+├── Campus Feed/                   # Campus-specific content
+├── MainCalendar/                  # Calendar & events
+├── Accomodation/                  # Housing search
+├── Career Paths/                  # Career guidance & arcade games
+│   └── Career Arcade/            # SpriteKit mini-games
+├── ChapterMatchV2/                # University matching algorithm
+├── Shortlist V2/                  # Saved universities/courses
+├── Compare V2/                    # Side-by-side comparison
+├── Game/                          # Main world game (SpriteKit)
+├── Onboarding V2/                 # User onboarding flow
+├── Login Flow/                    # Authentication screens
+├── UserV2 Profile/                # User profile & settings
+├── Albums/                        # Photo albums
+├── Checklist V2/                  # Tasks & to-dos
+├── Digital CV/                    # CV builder
+├── Societies + Sports Clubs/      # Extracurriculars
+├── What's On?/                    # Events discovery
+├── Error Handling/                # Error services
+├── Assets.xcassets/               # Images & colors
+└── Info.plist                     # App configuration
+```
+
+## Key Patterns
+
+### Feature-Based Organization
+
+Each feature has its own directory containing:
+- **Views**: SwiftUI view files
+- **ViewModels**: Observable objects managing state
+- **Models**: Feature-specific data structures  
+- **Managers/Services**: Business logic and API calls
+
+**Example:** `Accomodation/`
+```
+Accomodation/
+├── AccommodationV2MainView.swift          # Main list view
+├── AccommodationV2Manager.swift           # Business logic
+├── AccommodationFiltersView.swift         # Filter UI
+├── AccommodationV2.swift                  # Data model
+└── Detail View/
+    └── AccommodationV2DetailView.swift    # Detail screen
+```
+
+### Managers Pattern
+
+Managers encapsulate business logic and Supabase operations:
+
+```swift
+@MainActor
+class AccommodationV2Manager: ObservableObject {
+    @Published var accommodations: [AccommodationV2] = []
+    @Published var isLoading = false
+    
+    private let supabase = AuthManager.shared.supabase
+    
+    func fetchAccommodations(for universityID: Int) async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            let results: [AccommodationV2] = try await supabase
+                .from("accommodations_v2")
+                .select()
+                .eq("university_id", value: universityID)
+                .execute()
+                .value
+            
+            self.accommodations = results
+        } catch {
+            print("Error fetching accommodations: \(error)")
+        }
+    }
+}
+```
+
+**Common manager files:**
+- `AccommodationV2Manager.swift`
+- `MatchManager.swift`
+- `ShortlistV2Manager.swift`
+- `GradesV2Manager.swift`
+- `ClassesManager.swift`
+
+### Service Pattern
+
+Services handle specific operations (often stateless):
+
+```swift
+class ImageService {
+    func uploadProfilePicture(_ image: UIImage, userId: UUID) async throws -> String {
+        // Upload to Cloudflare R2 or Supabase Storage
+        // Return public URL
+    }
+}
+```
+
+**Example services:**
+- `CloudflareR2Service.swift` - File uploads to R2
+- `CampusFeedService.swift` - Campus feed operations  
+- `ApprenticeshipService.swift` - Apprenticeship data
+- `ErrorHandlingService.swift` - Centralized error handling
+
+### Shared Models
+
+Located in `Structs and Enums/`:
+
+#### UniversityV2 (`University_V2.swift`)
+```swift
+struct UniversityV2: Codable, Identifiable {
+    let id: Int
+    let name: String
+    let location: String
+    let rankings: UniversityRankings?
+    let demographics: Demographics?
+    let sports: [SportsTeam]?
+    // ... more properties
+}
+```
+
+#### Course_V2 (`Course_v2.swift`)
+```swift
+struct Course_V2: Codable, Identifiable {
+    let id: UUID
+    let name: String
+    let uniID: Int
+    let ucasPoints: Int?
+    let modules: [CourseModule]?
+    let ratings: CourseRatings?
+    // ... more properties
+}
+```
+
+#### GroupUser (`User/GroupUser.swift`)
+```swift
+struct GroupUser: Codable, Identifiable {
+    let id: UUID
+    var name: String
+    var email: String?
+    var uni_id: Int?
+    var enrollmentStatus: EnrollmentStatus?
+    var grades: [Grade]?
+    var interests: [String]?
+    var profilePictureURL: String?
+    // ... more properties
+}
+```
+
+## State Management
+
+### Combine Publishers
+
+Used throughout for reactive updates:
+
+```swift
+class CourseDataServiceV2: ObservableObject {
+    @Published var courses: [Course_V2] = []
+    @Published var isLoading = false
+    @Published var error: Error?
+    
+    private var cancellables = Set<AnyCancellable>()
+}
+```
+
+### Async/Await
+
+Preferred for asynchronous operations:
+
+```swift
+func loadCourses() async {
+    do {
+        let courses = try await supabase
+            .from("courses_v2")
+            .select()
+            .execute()
+            .value
+        
+        await MainActor.run {
+            self.courses = courses
+        }
+    } catch {
+        print("Error: \(error)")
+    }
+}
+```
+
+### @EnvironmentObject
+
+For dependency injection:
+
+```swift
+struct CourseDetailView: View {
+    @EnvironmentObject var container: AppContainer
+    
+    var body: some View {
+        // Access services via container
+        let _ = container.shortlistManager
+    }
+}
+```
+
+## Supabase Integration
+
+### AuthManager
+
+**Location:** Distributed across auth-related files
+
+```swift
+class AuthManager: ObservableObject {
+    static let shared = AuthManager()
+    
+    @Published var currentUser: GroupUser?
+    @Published var session: Session?
+    
+    let supabase: SupabaseClient
+    
+    func signIn(email: String, password: String) async throws {
+        // Sign in with Supabase Auth
+    }
+    
+    func signOut() async throws {
+        // Sign out and clear session
+    }
+}
+```
+
+### Database Queries
+
+Example from `SearchUniversityDataServiceV2.swift`:
+
+```swift
+func searchUniversities(query: String) async throws -> [UniversityV2] {
+    let results: [UniversityV2] = try await supabase
+        .from("universities_v2")
+        .select()
+        .ilike("name", value: "%\(query)%")
+        .order("name")
+        .execute()
+        .value
+    
+    return results
+}
+```
+
+### Realtime Subscriptions
+
+For live chat and presence:
+
+```swift
+func subscribeToMessages(groupId: UUID) {
+    let channel = supabase.channel("messages:\(groupId)")
+    
+    channel
+        .on("postgres_changes", SupabaseFilter(
+            event: .insert,
+            schema: "public",
+            table: "messages",
+            filter: "group_id=eq.\(groupId)"
+        )) { [weak self] payload in
+            // Handle new message
+        }
+        .subscribe()
+}
+```
+
+## UI Components
+
+### Custom Gradients
+
+**Location:** `Extensions/Colours.swift`
+
+```swift
+extension LinearGradient {
+    static var canYouFeelTheLove: LinearGradient {
+        LinearGradient(
+            colors: [Color(hex: "F093FB"), Color(hex: "F5576C")],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+    
+    static var sexyBlue: LinearGradient { /* ... */ }
+    static var sunset: LinearGradient { /* ... */ }
+    static var explorer: LinearGradient { /* ... */ }
+}
+```
+
+### Reusable Components
+
+**Location:** `Helpers/`
+
+- **LoadingIndicatorView.swift**: Loading spinners
+- **SkeletonLoading.swift**: Content placeholders
+- **BlurredCardView.swift**: Card with blur effect
+- **SearchHeader.swift**: Search bar component
+
+Example usage:
+```swift
+if isLoading {
+    SkeletonLoading()
+} else {
+    ContentView()
+}
+```
+
+## SpriteKit Integration
+
+### Career Arcade Games
+
+**Location:** `Career Paths/Career Arcade/`
+
+The app uses SpriteKit for mini-games:
+
+```
+Career Arcade/
+├── Aim & Learn/
+│   ├── AimLearnGameView.swift          # SwiftUI wrapper
+│   ├── AimLearnGameScene.swift         # SpriteKit scene
+│   └── AimLearnSupabaseService.swift   # Leaderboard API
+├── Quick Think/
+│   └── QuickThinkProfileView.swift
+├── Day In Life/
+│   └── DayInLifeRootView.swift
+└── Leaderboard/
+    └── ArcadeLeaderboardService.swift
+```
+
+**Pattern:** SwiftUI view wraps SpriteKit scene:
+
+```swift
+struct AimLearnGameView: View {
+    var body: some View {
+        SpriteView(scene: AimLearnGameScene())
+            .ignoresSafeArea()
+    }
+}
+```
+
+## Testing
+
+**Location:** `ChapterTests/`
+
+Currently minimal test coverage. Basic XCTest structure:
+
+```swift ChapterTests/ChapterTests.swift
+import XCTest
+@testable import Chapter
+
+final class ChapterTests: XCTestCase {
+    func testExample() throws {
+        // Test implementation
+    }
+}
+```
+
+<Note>
+  The project would benefit from increased test coverage. See the [Contributing Guide](/development/contributing) for testing best practices.
+</Note>
+
+## Configuration Files
+
+### Secrets Management
+
+**File:** `Chapter/Secrets.xcconfig` (gitignored)
+
+Contains sensitive configuration:
+```properties
+SUPABASE_URL = https://xxx.supabase.co
+SUPABASE_ANON_KEY = eyJxxx...
+MIXPANEL_TOKEN = abc123...
+```
+
+Accessed in code via `Bundle.main.object(forInfoDictionaryKey:)`
+
+### Google Services
+
+**File:** `Chapter/GoogleService-Info.plist`
+
+Firebase configuration for:
+- Cloud Messaging (FCM)
+- Analytics
+- Crashlytics
+
+## File Naming Conventions
+
+- **Views**: `[Feature][Purpose]View.swift`
+  - Example: `AccommodationV2DetailView.swift`
+- **Managers**: `[Feature]Manager.swift`
+  - Example: `ShortlistV2Manager.swift`
+- **Services**: `[Feature]Service.swift`
+  - Example: `ImageService.swift`
+- **Models**: `[ModelName].swift` (often singular)
+  - Example: `University_V2.swift`, `Course_v2.swift`
+- **Extensions**: Feature or type name
+  - Example: `Colours.swift`, `Extensions.swift`
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Setup Guide" icon="gear" href="/development/setup">
+    Set up your development environment
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Learn how to contribute to the project
+  </Card>
+</CardGroup>

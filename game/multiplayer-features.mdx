@@ -1,0 +1,553 @@
+---
+title: Multiplayer Features
+description: Real-time multiplayer experiences in Chapter's game world using Supabase Realtime Presence for seamless social interactions
+---
+
+Chapter's game world brings students together in real-time multiplayer zones where they can explore, chat, and connect with peers. The multiplayer system uses Supabase Realtime Presence for live position sync and proximity-based interactions.
+
+## Architecture Overview
+
+### Supabase Realtime Presence
+
+The multiplayer system uses **Presence** instead of database writes for position sync:
+
+<CardGroup cols={2}>
+  <Card title="Ephemeral State" icon="clock">
+    No database writes per frame - positions stored in memory
+  </Card>
+  <Card title="Automatic Cleanup" icon="broom">
+    Players auto-removed from presence when they disconnect
+  </Card>
+  <Card title="Zone Channels" icon="tower-broadcast">
+    Each zone gets its own channel for isolated player groups
+  </Card>
+  <Card title="Broadcast Chat" icon="message">
+    Chat messages broadcast on the same channel for low latency
+  </Card>
+</CardGroup>
+
+### Channel Scoping
+
+Channels are scoped hierarchically to organize players:
+
+```swift
+static func channelKey(hub: String, zone: String) -> String {
+    if (hub == "offerHolder" || hub == "firmChoice"),
+       let uniId = AuthManager.shared.currentUser?.uni_id {
+        // Offer holders only see others at their university
+        return "\(hub):\(zone):uni_\(uniId)"
+    }
+    return "\(hub):\(zone)"
+}
+```
+
+**Examples:**
+- `careers:main_hub` - All prospects in the Main Hub
+- `offerHolder:island_zone:uni_142` - Offer holders at Oxford in the Island Zone
+- `campusLife:library:uni_142` - Enrolled Oxford students in the Library
+
+## Presence Tracking
+
+### Joining a Zone
+
+When a player enters a zone, `MultiplayerService` joins the presence channel:
+
+```swift
+func joinZone(hub: String, zone: String) async {
+    let channelKey = Self.channelKey(hub: hub, zone: zone)
+    
+    // Leave previous zone
+    await leaveZone()
+    
+    currentChannelKey = channelKey
+    
+    // Create presence channel
+    let presChannelName = "presence:\(channelKey)"
+    let presCh = supabase.realtimeV2.channel(presChannelName)
+    presenceChannel = presCh
+    
+    // Listen for presence changes
+    presenceListenTask = Task {
+        let stream = presCh.presenceChange()
+        for await change in stream {
+            await handlePresenceChange(change)
+        }
+    }
+    
+    await presCh.subscribe()
+    await trackSelf()  // Broadcast own position
+}
+```
+
+### Presence Payload
+
+Each player's presence payload includes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user_id` | UUID | Player's unique identifier |
+| `name` | String | Display name (first name) |
+| `x`, `y` | Double | Current position in zone |
+| `target_x`, `target_y` | Double | Movement destination (for interpolation) |
+| `animation_state` | String | `"idle"` or `"walking"` |
+| `avatar_config` | JSON String | Full avatar customization |
+| `pet_config` | JSON String | Equipped pet (empty if none) |
+| `timestamp` | Double | Last update time (for staleness detection) |
+| `uni_id`, `school_id` | Int | Privacy filtering metadata |
+| `privacy` | String | Privacy mode (`"public"`, `"friendsOnly"`, `"schoolOnly"`, `"solo"`) |
+
+### Position Updates
+
+Position sync is throttled to 10 updates/second by `PositionSyncManager`:
+
+```swift
+class PositionSyncManager {
+    private var syncTimer: Timer?
+    private let syncInterval: TimeInterval = 0.1  // 10 Hz
+    
+    func startSync() {
+        syncTimer = Timer.scheduledTimer(withTimeInterval: syncInterval, repeats: true) { _ in
+            Task { await self.syncPosition() }
+        }
+    }
+    
+    private func syncPosition() async {
+        guard let scene = GameManager.shared.currentScene as? BaseHubScene,
+              let player = scene.playerNode else { return }
+        
+        let pos = player.position
+        let isMoving = player.isMoving
+        let target = player.moveTarget
+        
+        try? await MultiplayerService.shared.updatePosition(
+            x: Double(pos.x),
+            y: Double(pos.y),
+            isMoving: isMoving,
+            targetX: target.map { Double($0.x) },
+            targetY: target.map { Double($0.y) }
+        )
+    }
+}
+```
+
+<Info>
+  Position updates use Presence `track()` which overwrites previous state - no database writes accumulate
+</Info>
+
+## Player Rendering
+
+### Spawning Remote Players
+
+When a new player joins the zone, `MultiplayerService` parses their presence and spawns an `OtherPlayerNode`:
+
+```swift
+private func syncPlayersToScene(_ players: [NearbyPlayer]) {
+    guard let scene = GameManager.shared.currentScene as? BaseHubScene else { return }
+    
+    // Sort by distance, limit to 30 visible
+    let playerPos = scene.playerNode?.position ?? .zero
+    let sortedPlayers = players.sorted { a, b in
+        let da = hypot(a.x - Double(playerPos.x), a.y - Double(playerPos.y))
+        let db = hypot(b.x - Double(playerPos.x), b.y - Double(playerPos.y))
+        return da < db
+    }
+    let visibleIds = Set(sortedPlayers.prefix(maxVisiblePlayers).map(\.id))
+    
+    // Spawn or update visible players
+    for player in sortedPlayers.prefix(maxVisiblePlayers) {
+        let pos = CGPoint(x: player.x, y: player.y)
+        
+        if let existingNode = scene.otherPlayers[player.id] {
+            // Update existing player position
+            scene.updateOtherPlayer(userId: player.id, position: pos)
+            existingNode.updatePet(config: player.petConfig)
+        } else {
+            // Spawn new player
+            scene.addOtherPlayer(
+                userId: player.id,
+                avatarConfig: player.avatarConfig,
+                name: player.name,
+                position: pos,
+                petConfig: player.petConfig
+            )
+        }
+    }
+}
+```
+
+### Avatar Rendering
+
+Remote players use the same `PlayerNode` + `AvatarRenderer` system as the local player, with avatars built from the broadcasted config:
+
+```swift
+class OtherPlayerNode: PlayerNode {
+    var userId: UUID?
+    
+    init(userId: UUID, avatarConfig: PlayerAvatarConfig, name: String, petConfig: PetConfig? = nil) {
+        self.userId = userId
+        super.init(avatarConfig: avatarConfig, name: name, isLocalPlayer: false)
+        self.alpha = 0
+        self.run(SKAction.fadeIn(withDuration: 0.3))
+        
+        // Spawn pet if equipped
+        if let petConfig {
+            spawnPet(config: petConfig)
+        }
+    }
+}
+```
+
+### Smooth Interpolation
+
+Instead of snapping to each position update, remote players interpolate smoothly:
+
+```swift
+func updatePosition(_ newPosition: CGPoint) {
+    targetPosition = newPosition
+    moveTo(newPosition, speed: 250)  // Smooth SKAction animation
+}
+```
+
+The `target_x` and `target_y` fields in presence help predict movement for lag compensation.
+
+## Proximity Chat
+
+### Broadcast Architecture
+
+Chat messages use the **broadcast** feature on the same zone channel:
+
+```swift
+func sendChat(_ message: String) async {
+    guard let userId = AuthManager.shared.currentUser?.id,
+          let userName = AuthManager.shared.currentUser?.firstName else { return }
+    
+    await chatChannel?.broadcast(
+        event: "message",
+        message: [
+            "user_id": .string(userId.uuidString),
+            "name": .string(userName),
+            "message": .string(message),
+            "timestamp": .string(String(Date().timeIntervalSince1970))
+        ]
+    )
+}
+```
+
+### Chat Bubbles
+
+Incoming messages appear as floating bubbles above avatars:
+
+```swift
+private func handleChatBroadcast(_ message: JSONObject) async {
+    guard let userId = UUID(uuidString: userIdStr),
+          let chatMessage = data["message"]?.stringValue else { return }
+    
+    let isOwn = userId == AuthManager.shared.currentUser?.id
+    
+    // Show bubble on player's avatar
+    if let scene = GameManager.shared.currentScene as? BaseHubScene {
+        if isOwn {
+            scene.playerNode?.showChatBubble(chatMessage, style: .own)
+        } else {
+            scene.otherPlayers[userId]?.showChatBubble(chatMessage, style: .other)
+        }
+    }
+}
+```
+
+<img src="/images/chat-bubble.png" alt="Chat bubble above player avatar" />
+
+Bubbles auto-dismiss after 4 seconds with a fade-out animation.
+
+### Zone Chat History
+
+`ZoneChatService` stores recent messages for the overlay panel:
+
+```swift
+class ZoneChatService: ObservableObject {
+    @Published var messages: [ZoneChatMessage] = []
+    private let maxMessages = 100
+    
+    struct ZoneChatMessage: Identifiable {
+        let id = UUID()
+        let userId: UUID
+        let userName: String
+        let message: String
+        let timestamp: Date
+    }
+    
+    func addIncomingMessage(_ msg: ZoneChatMessage) {
+        messages.append(msg)
+        if messages.count > maxMessages {
+            messages.removeFirst(messages.count - maxMessages)
+        }
+    }
+}
+```
+
+Students can open the chat overlay from the HUD to view scrollable history.
+
+## Privacy Controls
+
+### Lobby Privacy Modes
+
+`LobbyPrivacyService` offers four privacy levels:
+
+<AccordionGroup>
+  <Accordion title="Public (Default)">
+    See all players in the zone, visible to everyone
+  </Accordion>
+  <Accordion title="Friends Only">
+    Only see friends, only visible to friends
+  </Accordion>
+  <Accordion title="School Only">
+    Only see students from your school or university
+  </Accordion>
+  <Accordion title="Solo Mode">
+    Don't join multiplayer - explore alone
+  </Accordion>
+</AccordionGroup>
+
+### Privacy Filtering
+
+Filters apply both locally (who you see) and remotely (who sees you):
+
+```swift
+private func parsePresence(_ presence: PresenceV2, myId: UUID) -> NearbyPlayer? {
+    // If remote player is in solo mode, don't show them
+    if let remotePrivacy = state["privacy"]?.stringValue, 
+       remotePrivacy == "solo" {
+        return nil
+    }
+    
+    // Apply local privacy filtering
+    let privacy = LobbyPrivacyService.shared
+    switch privacy.privacyMode {
+    case .solo:
+        return nil
+    case .friendsOnly:
+        guard privacy.shouldShowPlayer(userId: userId) else { return nil }
+    case .schoolOnly:
+        let myUniId = AuthManager.shared.currentUser?.uni_id
+        let mySchoolId = AuthManager.shared.currentUser?.schoolId
+        let sameUni = myUniId == remoteUniId
+        let sameSchool = mySchoolId == remoteSchoolId
+        guard sameUni || sameSchool else { return nil }
+    case .public:
+        break
+    }
+    
+    // Parse and return player
+    return NearbyPlayer(...)
+}
+```
+
+Changing privacy mode triggers a re-filter or channel rejoin:
+
+```swift
+private func handlePrivacyModeChange() async {
+    if privacy.privacyMode == .solo {
+        await leaveZone()  // Go invisible
+    } else if connectionState == .disconnected {
+        await joinZone(...)  // Rejoin from solo
+    } else {
+        refilterNearbyPlayers()  // Re-apply filters
+    }
+}
+```
+
+## Player Interactions
+
+### Tap to View Profile
+
+Tapping another player's avatar opens a context menu:
+
+```swift
+func handleOtherPlayerTap(_ otherNode: OtherPlayerNode) {
+    guard let userId = otherNode.userId else { return }
+    gameManager?.showPlayerContextMenu(userId: userId)
+}
+```
+
+The context menu offers:
+- **View Profile** - Full student profile overlay
+- **Add Friend** - Send friend request
+- **Send Message** - Open DM in Connect tab
+- **Pan to Player** - Smoothly scroll camera to their location
+
+### Emote System
+
+Players can send animated emotes that broadcast to all nearby players:
+
+```swift
+func sendEmote(_ emoteType: String) async {
+    guard let userId = AuthManager.shared.currentUser?.id else { return }
+    
+    await chatChannel?.broadcast(
+        event: "emote",
+        message: [
+            "user_id": .string(userId.uuidString),
+            "emote": .string(emoteType)
+        ]
+    )
+}
+```
+
+Available emotes:
+- **Wave** - Right arm waves, body tilts
+- **Dance** - Full body sways with arm swings
+- **Clap** - Hands clap together with body bounce
+- **Laugh** - Rapid bounces with lean-back
+- **Thumbs Up** - Right arm raises confidently
+- **Jump** - Vertical leap with arm raise
+- **Sit** - Crouch down (for benches)
+
+<Info>
+  Emotes use `PlayerNode`'s built-in animation system - the same animations work for local and remote players
+</Info>
+
+## Staleness Detection
+
+Players who haven't updated their presence in 20+ seconds are marked as "idle ghosts":
+
+```swift
+private func cleanupStalePlayers() {
+    let now = Date()
+    
+    for (userId, lastSeen) in lastHeardFrom {
+        let elapsed = now.timeIntervalSince(lastSeen)
+        
+        if elapsed > staleTimeout * 3 {
+            // Very stale - remove completely
+            nearbyPlayers.removeAll { $0.id == userId }
+            scene.removeOtherPlayer(userId: userId)
+        } else if elapsed > staleTimeout {
+            // Moderately stale - show as ghost
+            if let node = scene.otherPlayers[userId] {
+                node.setIdleGhost()  // Fade to 35% opacity, gentle hover
+            }
+        }
+    }
+}
+```
+
+Ghosts restore to full opacity when they move again.
+
+## Performance Optimizations
+
+<CardGroup cols={2}>
+  <Card title="Player Limit" icon="users-slash">
+    Max 30 visible players per zone, sorted by proximity
+  </Card>
+  <Card title="Throttled Sync" icon="gauge">
+    Position updates limited to 10 Hz (100ms intervals)
+  </Card>
+  <Card title="Avatar Caching" icon="hard-drive">
+    Decoded avatar configs cached by user_id to avoid re-parsing JSON
+  </Card>
+  <Card title="Stale Cleanup" icon="broom">
+    Timer runs every 5s to remove disconnected players
+  </Card>
+</CardGroup>
+
+### Memory Management
+
+Remote player nodes are pooled and reused:
+
+```swift
+func removeOtherPlayer(userId: UUID) {
+    guard let node = otherPlayers[userId] else { return }
+    node.fadeOutAndRemove()  // Smooth fade before removal
+    otherPlayers.removeValue(forKey: userId)
+}
+```
+
+Fading prevents jarring disappearances when players leave.
+
+## Interior Multiplayer
+
+Building interiors have separate presence channels:
+
+```swift
+func enterInterior(_ config: InteriorConfig) {
+    // Leave overworld presence
+    await MultiplayerService.shared.leaveZone()
+    
+    // Join interior presence
+    try? await InteriorPresenceService.shared.joinInterior(config.id)
+}
+```
+
+Interior channels are scoped: `interior:library:uni_142` - only students in the same university's library see each other.
+
+## Offer Holder Isolation
+
+Offer holder and firm choice hubs scope channels by university:
+
+```swift
+if hub == "offerHolder" || hub == "firmChoice" {
+    let uniId = AuthManager.shared.currentUser?.uni_id
+    return "\(hub):\(zone):uni_\(uniId)"
+}
+```
+
+**Why?** Offer holders only care about students at their prospective universities. Mixing all offer holders in one channel would be overwhelming and irrelevant.
+
+## App Lifecycle Handling
+
+Multiplayer pauses when the app backgrounds:
+
+```swift
+NotificationCenter.default.addObserver(
+    forName: UIApplication.willResignActiveNotification,
+    object: nil,
+    queue: .main
+) { _ in
+    Task {
+        await PositionSyncManager.shared.saveLastPosition()
+        await MultiplayerService.shared.leaveZone()
+    }
+}
+
+NotificationCenter.default.addObserver(
+    forName: UIApplication.didBecomeActiveNotification,
+    object: nil,
+    queue: .main
+) { _ in
+    Task {
+        // Rejoin previous zone
+        await MultiplayerService.shared.joinZone(hub: ..., zone: ...)
+    }
+}
+```
+
+Position is persisted to `player_last_position` table before disconnect, restored on rejoin.
+
+## Testing Multiplayer
+
+To test multiplayer locally:
+
+1. **Two devices:** Run Chapter on two iPhones logged in as different users
+2. **Simulator + device:** Run in Xcode Simulator and on a physical device
+3. **TestFlight:** Distribute to testers, coordinate zone entry
+
+<Tip>
+  Use solo mode to disable multiplayer when testing single-player features
+</Tip>
+
+## Future Enhancements
+
+<CardGroup cols={2}>
+  <Card title="Voice Proximity" icon="microphone">
+    Spatial audio chat in zones (requires WebRTC integration)
+  </Card>
+  <Card title="Friend Highlights" icon="star">
+    Glowing outlines around friends in the game world
+  </Card>
+  <Card title="Player Invites" icon="envelope">
+    Invite friends to join your zone with a notification
+  </Card>
+  <Card title="Zone Events" icon="calendar-star">
+    Scheduled multiplayer events (career fairs, society mixers)
+  </Card>
+</CardGroup>

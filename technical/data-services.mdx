@@ -1,0 +1,612 @@
+---
+title: 'Data Services'
+description: 'Understand the service layer architecture in Chapter iOS and how to implement data services for backend communication'
+---
+
+## Overview
+
+Chapter uses a **service layer architecture** to separate data access logic from UI code. Services encapsulate all backend communication, state management, and business logic.
+
+### Key Benefits
+
+- **Separation of Concerns**: UI components focus on presentation, services handle data
+- **Reusability**: Services can be shared across multiple views
+- **Testability**: Services can be mocked for unit testing
+- **Maintainability**: Centralized data logic is easier to update
+
+## Service Architecture
+
+### Service Types
+
+Chapter implements several categories of services:
+
+| Service Type | Purpose | Examples |
+|--------------|---------|----------|
+| **Data Services** | CRUD operations for specific entities | `PostsService`, `CampusFeedService` |
+| **Manager Services** | Business logic and state coordination | `AuthManager`, `AlbumManager` |
+| **Real-time Services** | WebSocket subscriptions and live updates | `PresenceService`, `MultiplayerService` |
+| **Storage Services** | File upload and media management | `StorageService` |
+| **Utility Services** | Shared functionality | `ErrorService`, `NotificationManager` |
+
+### Singleton Pattern
+
+Most services use the singleton pattern for global access:
+
+```swift PostsService.swift:16-38
+class PostsService: ObservableObject {
+    static let shared = PostsService()
+    
+    let supabase: SupabaseClient = AuthManager.shared.supabase
+    let storageService: StorageService
+    
+    @Published var locationSearchQuery: String = ""
+    @Published var searchResults: [MKMapItem] = []
+    @Published var buildings: [BuildingMock] = []
+    @Published var postsCache: [UUID: [Post]] = [:]
+    @Published var fetchPostsLoading: Bool = false
+    @Published var fetchPostsErrorMessage: String? = nil
+    @Published var createPostLoading: Bool = false
+    @Published var createPostErrorMessage: String? = nil
+    @Published var currentGroupID: UUID? {
+        didSet {
+            fetchPostsIfNeeded()
+        }
+    }
+    
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        storageService = StorageService(supabaseClient: supabase)
+    }
+}
+```
+
+<Note>
+Services marked with `@MainActor` ensure all UI updates happen on the main thread.
+</Note>
+
+## Data Service Pattern
+
+### Basic Structure
+
+A typical data service includes:
+
+1. **Published State**: Observable properties for UI binding
+2. **Cache**: In-memory storage for fetched data
+3. **CRUD Methods**: Create, read, update, delete operations
+4. **Error Handling**: Consistent error reporting
+5. **Loading States**: Track async operation progress
+
+### Example: PostsService
+
+```swift PostsService.swift:81-111
+func createPost(post: Post, imageData: [Data]? = nil) async throws {
+    DispatchQueue.main.async {
+        self.createPostErrorMessage = nil
+        self.createPostLoading = true
+    }
+    
+    do {
+        if let datas = imageData {
+            var mutablePost = post
+            var updatedImageURLs = mutablePost.imageURLs
+            
+            for data in datas {
+                let uniqueImagePath = "posts/\(UUID().uuidString).jpg"
+                let url = try await storageService.uploadPostImage(data: data, path: uniqueImagePath)
+                updatedImageURLs.append(url)
+            }
+            mutablePost.imageURLs = updatedImageURLs
+            try await createPostAndComments(post: mutablePost)
+        } else {
+            try await createPostAndComments(post: post)
+        }
+    } catch {
+        DispatchQueue.main.async {
+            self.createPostErrorMessage = "Error creating post: \(error.localizedDescription)."
+            self.createPostLoading = true
+        }
+    }
+}
+```
+
+### Fetching Data with Caching
+
+```swift PostsService.swift:49-75
+func fetchPostsIfNeeded() {
+    guard let groupID = currentGroupID else { return }
+    
+    DispatchQueue.main.async {
+        self.fetchPostsErrorMessage = nil
+        self.fetchPostsLoading = true
+    }
+    
+    // Check cache first
+    if let _ = postsCache[groupID] {
+        print("Using cached posts for group \(groupID)")
+        return
+    }
+    
+    Task {
+        do {
+            try await fetchPosts(groupID: groupID, userID: nil)
+        } catch {
+            DispatchQueue.main.async {
+                self.fetchPostsLoading = true
+                self.fetchPostsErrorMessage = "Error fetching posts for group \(groupID): \(error)"
+            }
+            print("Error fetching posts for group \(groupID): \(error)")
+        }
+    }
+}
+```
+
+<Tip>
+Always implement caching to reduce unnecessary network requests and improve performance.
+</Tip>
+
+## Storage Service
+
+Handles file uploads to Supabase Storage:
+
+```swift StorageService.swift:11-78
+class StorageService {
+    let supabase: SupabaseClient
+    
+    init(supabaseClient: SupabaseClient) {
+        self.supabase = supabaseClient
+    }
+    
+    func uploadPostImage(data: Data, path: String) async throws -> URL {
+        let bucketName = "post-images"
+        
+        try await supabase.storage.from(bucketName)
+            .upload(path: path, file: data)
+        
+        let publicURL = try supabase
+            .storage
+            .from(bucketName)
+            .getPublicURL(path: path)
+        
+        return publicURL
+    }
+    
+    func uploadProfileImage(data: Data) async throws -> URL {
+        let bucketName = "images"
+        let path = "p\(UUID().uuidString).jpg"
+        
+        try await supabase.storage.from(bucketName)
+            .upload(path: path, file: data)
+        
+        let publicURL = try supabase
+            .storage
+            .from(bucketName)
+            .getPublicURL(path: path)
+        
+        return publicURL
+    }
+
+    func uploadVideo(data: Data, uuid: String) async throws -> URL {
+        let bucketName = "post-videos"
+        let path = "posts/\(UUID().uuidString).mp4"
+        
+        try await supabase.storage.from(bucketName)
+            .upload(path: path, file: data)
+        
+        let publicURL = try supabase
+            .storage
+            .from(bucketName)
+            .getPublicURL(path: path)
+        
+        return publicURL
+    }
+}
+```
+
+### Usage Example
+
+```swift
+let storageService = StorageService(supabaseClient: supabase)
+let imageURL = try await storageService.uploadProfileImage(data: imageData)
+```
+
+## Campus Feed Service
+
+A more complex service implementing personalized content feeds:
+
+```swift CampusFeedService.swift:39-110
+@MainActor
+class CampusFeedService: ObservableObject {
+    static let shared = CampusFeedService()
+
+    private let supabase: SupabaseClient
+
+    @Published var forYouFeed: [FeedItem] = []
+    @Published var exploreFeed: [FeedItem] = []
+    @Published var followingFeed: [FeedItem] = []
+    @Published var selectedTab: FeedTab = .forYou
+    @Published var selectedFilter: FeedFilter = .all
+    @Published var isLoading: Bool = false
+    @Published var isRefreshing: Bool = false
+    @Published var hasMoreContent: Bool = true
+    @Published var stories: [FeedStory] = []
+    @Published var quickActions: [QuickAction] = []
+    @Published var pinnedItems: [FeedItem] = []
+
+    private var cancellables = Set<AnyCancellable>()
+    private var lastForYouItemID: UUID?
+    private var lastExploreItemID: UUID?
+    private var lastFollowingItemID: UUID?
+    private let pageSize = 20
+
+    private var currentUser: GroupUser? {
+        AuthManager.shared.currentUser
+    }
+
+    private var userStage: DerivedUserStage {
+        currentUser?.derivedStage() ?? .exploring(2025)
+    }
+
+    private var userRelevanceStage: FeedRelevanceStage {
+        switch userStage {
+        case .exploring: return .exploring
+        case .applyingFor: return .applying
+        case .offerHolderFor, .startingThisYear: return .offerHolder
+        case .atUniYear(1), .foundationYear: return .fresher
+        case .atUniYear: return .returning
+        default: return .all
+        }
+    }
+
+    private init() {
+        supabase = AuthManager.shared.supabase
+        setupSubscribers()
+        setupRealtimeSubscription()
+    }
+
+    private func setupSubscribers() {
+        $selectedFilter
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { await self?.refresh() }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func setupRealtimeSubscription() {
+        Task {
+            let channel = supabase.channel("feed_updates")
+
+            let insertions = channel.postgresChange(
+                InsertAction.self,
+                schema: "public",
+                table: "feed_items"
+            )
+
+            await channel.subscribe()
+
+            for await insert in insertions {
+                await handleNewFeedItem(insert.record)
+            }
+        }
+    }
+}
+```
+
+### Personalization Logic
+
+```swift CampusFeedService.swift:384-429
+private func fetchForYouFeed(refresh: Bool) async {
+    isLoading = true
+
+    do {
+        let response = try await supabase
+            .from("feed_items")
+            .select()
+            .eq("is_active", value: true)
+            .or("relevance_stages.cs.[\"all\"],relevance_stages.cs.[\"\(userStageString)\"]")
+            .order("is_pinned", ascending: false)
+            .order("created_at", ascending: false)
+            .limit(pageSize)
+            .execute()
+
+        let feedRows = try makeSupabaseDateDecoder().decode([FeedItemRow].self, from: response.data)
+
+        var items: [FeedItem] = []
+        for row in feedRows {
+            if let item = await fetchFeedItemWithContent(row: row) {
+                items.append(item)
+            }
+        }
+
+        if refresh {
+            forYouFeed = items
+        } else {
+            forYouFeed.append(contentsOf: items)
+        }
+
+        lastForYouItemID = items.last?.id
+        hasMoreContent = items.count >= pageSize
+
+    } catch {
+        print("Error fetching For You feed: \(error)")
+
+        if refresh && forYouFeed.isEmpty {
+            let fallbackContent = await generateFallbackContent()
+            forYouFeed = fallbackContent
+        }
+    }
+
+    isLoading = false
+}
+```
+
+## Date Decoding Helper
+
+Many services implement custom date decoders for Supabase's ISO8601 format:
+
+```swift CampusFeedService.swift:16-36
+private func makeSupabaseDateDecoder() -> JSONDecoder {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .custom { decoder in
+        let container = try decoder.singleValueContainer()
+        let dateString = try container.decode(String.self)
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: dateString) {
+            return date
+        }
+
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: dateString) {
+            return date
+        }
+
+        throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date: \(dateString)")
+    }
+    return decoder
+}
+```
+
+## Service Communication Patterns
+
+### Publisher Pattern
+
+Services expose publishers for reactive updates:
+
+```swift PostsService.swift:259-265
+func postsPublisher(for groupID: UUID) -> AnyPublisher<[Post], Never> {
+    $postsCache
+        .map { cache in
+            cache[groupID] ?? []
+        }
+        .eraseToAnyPublisher()
+}
+```
+
+### Delegate Pattern
+
+Some services use delegates for event callbacks:
+
+```swift
+protocol PostsServiceDelegate: AnyObject {
+    func postsService(_ service: PostsService, didCreatePost post: Post)
+    func postsService(_ service: PostsService, didFailWithError error: Error)
+}
+```
+
+### Notification Pattern
+
+For app-wide events:
+
+```swift
+NotificationCenter.default.post(
+    name: NSNotification.Name("userDidLogout"),
+    object: nil
+)
+```
+
+## Error Handling Strategy
+
+### User-Facing Errors
+
+Services use `ErrorService` to display errors to users:
+
+```swift
+ErrorService.shared.showError(
+    title: "Failed to Load Posts",
+    description: error.localizedDescription
+)
+```
+
+### Silent Error Handling
+
+For non-critical failures:
+
+```swift
+do {
+    try await updateAnalytics()
+} catch {
+    print("Analytics update failed: \(error)")
+    // Don't show error to user
+}
+```
+
+### Error Recovery
+
+Implement fallback mechanisms:
+
+```swift CampusFeedService.swift:418-425
+catch {
+    print("Error fetching For You feed: \(error)")
+
+    if refresh && forYouFeed.isEmpty {
+        let fallbackContent = await generateFallbackContent()
+        forYouFeed = fallbackContent
+    }
+}
+```
+
+## Best Practices
+
+### 1. Keep Services Focused
+
+Each service should have a single, well-defined responsibility:
+
+```swift
+// ✅ Good - focused service
+class PostsService {
+    func fetchPosts() async throws -> [Post]
+    func createPost(_ post: Post) async throws
+    func updatePost(_ post: Post) async throws
+    func deletePost(_ id: UUID) async throws
+}
+
+// ❌ Bad - too many responsibilities
+class DataService {
+    func fetchPosts() async throws -> [Post]
+    func fetchUsers() async throws -> [User]
+    func uploadImage() async throws -> URL
+    func sendNotification() async throws
+}
+```
+
+### 2. Implement Caching
+
+Cache frequently accessed data:
+
+```swift
+private var cache: [UUID: Post] = [:]
+
+func getPost(id: UUID) async throws -> Post {
+    if let cached = cache[id] {
+        return cached
+    }
+    
+    let post = try await fetchPost(id: id)
+    cache[id] = post
+    return post
+}
+```
+
+### 3. Use Main Actor for UI Updates
+
+```swift
+@MainActor
+class MyService: ObservableObject {
+    @Published var items: [Item] = []
+    
+    func loadItems() async {
+        let items = try await fetchItems()
+        self.items = items  // Safe - already on main actor
+    }
+}
+```
+
+### 4. Handle Loading States
+
+Always track operation progress:
+
+```swift
+@Published var isLoading = false
+@Published var error: Error?
+
+func loadData() async {
+    isLoading = true
+    error = nil
+    
+    do {
+        let data = try await fetch()
+        // Process data
+    } catch {
+        self.error = error
+    }
+    
+    isLoading = false
+}
+```
+
+### 5. Implement Pagination
+
+For large datasets:
+
+```swift
+private var lastItemID: UUID?
+private let pageSize = 20
+
+func loadMore() async {
+    guard !isLoading else { return }
+    
+    var query = supabase
+        .from("items")
+        .select()
+        .limit(pageSize)
+    
+    if let lastID = lastItemID {
+        query = query.gt("id", value: lastID)
+    }
+    
+    let items = try await query.execute().value
+    lastItemID = items.last?.id
+}
+```
+
+## Testing Services
+
+### Protocol-Based Mocking
+
+```swift
+protocol PostsServiceProtocol {
+    func fetchPosts(groupID: UUID) async throws -> [Post]
+    func createPost(_ post: Post) async throws
+}
+
+class MockPostsService: PostsServiceProtocol {
+    var mockPosts: [Post] = []
+    
+    func fetchPosts(groupID: UUID) async throws -> [Post] {
+        return mockPosts
+    }
+    
+    func createPost(_ post: Post) async throws {
+        mockPosts.append(post)
+    }
+}
+```
+
+### Unit Test Example
+
+```swift
+class PostsServiceTests: XCTestCase {
+    var service: MockPostsService!
+    
+    override func setUp() {
+        service = MockPostsService()
+    }
+    
+    func testFetchPosts() async throws {
+        service.mockPosts = [Post(id: UUID(), title: "Test")]
+        
+        let posts = try await service.fetchPosts(groupID: UUID())
+        
+        XCTAssertEqual(posts.count, 1)
+        XCTAssertEqual(posts.first?.title, "Test")
+    }
+}
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Supabase Integration" icon="database" href="/technical/supabase-integration">
+    Database operations
+  </Card>
+  <Card title="Real-time Features" icon="bolt" href="/technical/real-time-features">
+    Live subscriptions
+  </Card>
+  <Card title="Authentication" icon="lock" href="/technical/authentication">
+    Auth patterns
+  </Card>
+</CardGroup>

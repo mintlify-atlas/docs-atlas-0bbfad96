@@ -1,0 +1,189 @@
+---
+title: Architecture Overview
+description: High-level architecture of the Chapter iOS app including SwiftUI patterns, dependency injection, and state management
+---
+
+## Introduction
+
+Chapter is a SwiftUI-based iOS application designed to guide students through their university journey. The app uses modern Swift concurrency, reactive patterns with Combine, and a centralized dependency injection container.
+
+## Core Architecture Patterns
+
+### App Entry Point
+
+The app starts with `ChapterApp.swift:20`, which uses the `@main` attribute and SwiftUI's `App` protocol:
+
+```swift ChapterApp.swift
+@main
+struct ChapterApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject var snapchatManager = SnapchatManager.shared
+    let container = AppContainer.shared
+    
+    var body: some Scene {
+        WindowGroup {
+            MasterTabView(authManager: AuthManager.shared)
+                .environmentObject(container)
+                .environmentObject(snapchatManager)
+                .fontDesign(.rounded)
+        }
+    }
+}
+```
+
+### Dependency Injection Container
+
+The app uses a centralized `AppContainer` class (`AppDependencies.swift:20`) that provides singleton access to core services:
+
+```swift AppDependencies.swift
+@MainActor
+class AppContainer: ObservableObject {
+    static let shared = AppContainer()
+    
+    // Filter ViewModels
+    @Published var searchCourseFilter: CourseV2FilterViewModel
+    @Published var searchUniFilter: UniversityV2FilterManager
+    
+    // Core Managers (NOT @Published to avoid cascade)
+    var authManager: AuthManager
+    var locationManager: DeviceLocationManager
+    var deepLinkManager = DeepLinkManager.shared
+    
+    // Data Services
+    var searchCourseDataService: CourseDataServiceV2
+    var shortlistManager: ShortlistV2Manager
+    var whatsOnManager: WhatsOnManager
+}
+```
+
+<Note>
+Services are NOT marked as `@Published` to prevent cascading UI re-renders. Only critical auth state changes trigger container updates.
+</Note>
+
+### State Management Strategy
+
+#### Observable Objects
+
+The app uses `ObservableObject` classes for shared state:
+
+- **AuthManager**: User authentication and profile state
+- **GameManager**: Game world state and player progress
+- **NavigationRouter**: App-wide navigation state
+- **NotificationManager**: Push notification handling
+
+#### Performance Optimization
+
+From `AppDependencies.swift:133`:
+
+```swift AppDependencies.swift
+private func setupAuthObservation() {
+    // Throttle and dedupe auth changes
+    authManager.$currentUser
+        .dropFirst()
+        .debounce(for: .milliseconds(250), scheduler: DispatchQueue.main)
+        .removeDuplicates { old, new in
+            // Only trigger update if auth state or enrollment status changed
+            let oldAuth = old != nil
+            let newAuth = new != nil
+            return oldAuth == newAuth && oldStatus == newStatus
+        }
+        .sink { [weak self] user in
+            self?.isAuthenticated = user != nil
+        }
+        .store(in: &cancellables)
+}
+```
+
+## Third-Party Integrations
+
+### Analytics
+
+- **Mixpanel**: Event tracking and user analytics (`ChapterApp.swift:32-50`)
+- **Firebase**: Push notifications via FCM (`ChapterApp.swift:193`)
+
+### Authentication
+
+- **Supabase**: Backend authentication and database (`AppDependencies.swift:119`)
+- **Snapchat SDK**: Social login integration (`ChapterApp.swift:191`)
+
+### Notifications
+
+- **Firebase Cloud Messaging**: Remote notifications
+- **UserNotifications**: Local notification handling
+
+## App Lifecycle Management
+
+The app handles scene phase changes for resource management (`ChapterApp.swift:96`):
+
+```swift ChapterApp.swift
+func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+    switch newPhase {
+    case .background:
+        print("📱 App entered background - cleaning up resources")
+        DeviceLocationManager.shared.stopLocationServices()
+        
+    case .active:
+        print("📱 App became active")
+        // Resources restored by individual managers
+        
+    default:
+        break
+    }
+}
+```
+
+## Concurrent Data Loading
+
+The app uses Swift's structured concurrency for parallel data loading (`MasterTabView.swift:376`):
+
+```swift MasterTabView.swift
+await withTaskGroup(of: Void.self) { group in
+    // Load university courses
+    if authManager.cachedUniID != 9999 {
+        group.addTask { @MainActor in
+            _ = try? await self.authManager.getCoursesForUni(
+                uniID: self.authManager.cachedUniID
+            )
+        }
+    }
+    
+    // Load cached course
+    if let uuid = UUID(uuidString: authManager.cachedCourseID) {
+        group.addTask { @MainActor in
+            self.authManager.course = try? await SupabaseMethods
+                .getMultipleCoursesV2(ids: [uuid]).first
+        }
+    }
+}
+```
+
+## Error Handling
+
+The app uses a centralized error service:
+
+```swift
+.errorOverlay()  // Global error overlay modifier
+.withErrorHandling(useBanner: false, appContainer: appContainer)
+```
+
+## Key Design Principles
+
+1. **Reactive UI**: SwiftUI views react to `@Published` state changes
+2. **Lazy Loading**: Tab content is loaded on-demand and cached
+3. **Singleton Services**: Shared managers use the singleton pattern
+4. **Environment Injection**: Services injected via SwiftUI environment
+5. **Async/Await**: Modern Swift concurrency for network operations
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Navigation System" icon="compass" href="/technical/navigation-system">
+    Learn about the app's routing and deep linking architecture
+  </Card>
+  <Card title="Data Models" icon="database" href="/technical/data-models">
+    Explore the core data structures and Codable types
+  </Card>
+  <Card title="Game Architecture" icon="gamepad" href="/technical/game-architecture">
+    Understand the SpriteKit game world integration
+  </Card>
+</CardGroup>

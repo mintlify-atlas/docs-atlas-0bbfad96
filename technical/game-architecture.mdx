@@ -1,0 +1,518 @@
+---
+title: Game Architecture
+description: Technical overview of Chapter's SpriteKit-based multiplayer game world, including scene management, zone system, and SwiftUI integration
+---
+
+## Overview
+
+Chapter includes an immersive 2.5D isometric game world built with SpriteKit that serves as an alternative navigation interface. Players can explore zones, interact with buildings, and engage with multiplayer features.
+
+## GameManager - Central State Controller
+
+The `GameManager` (`GameManager.swift:36`) is a singleton `ObservableObject` that bridges SpriteKit scenes with SwiftUI overlays:
+
+```swift GameManager.swift
+@MainActor
+final class GameManager: ObservableObject {
+    static let shared = GameManager()
+    
+    // Game-first mode toggle
+    @Published var isGameFirstMode = false
+    
+    // Feature overlay state (SwiftUI reads these)
+    @Published var activeFeatureDestination: AppDestination?
+    @Published var isFeatureOverlayPresented = false
+    @Published var currentHub: GameHub = .careers
+    @Published var isGameActive = false
+    
+    // Building interior state
+    @Published var activeBuildingInterior: BuildingInterior?
+    @Published var isBuildingInteriorPresented = false
+    
+    // Player state
+    @Published var playerXP: Int = 0
+    @Published var playerLevel: Int = 1
+    @Published var playerCoins: Int = 0
+    @Published var currentZoneName: String = ""
+    
+    // Scene management
+    private(set) var currentScene: SKScene?
+    private var scenes: [GameHub: BaseHubScene] = [:]
+}
+```
+
+## Game Hubs and Enrollment Status
+
+The game world adapts to the user's university journey stage:
+
+```swift GameManager.swift
+enum GameHub: String, CaseIterable, Codable {
+    case careers        // Prospect - exploring options
+    case offerHolder    // Offer holder - deciding
+    case firmChoice     // Firm choice set
+    case campusLife     // Enrolled - at university
+    
+    var displayName: String {
+        switch self {
+        case .careers: return "Exploring"
+        case .offerHolder: return "Deciding"
+        case .firmChoice: return "Offer Holder"
+        case .campusLife: return "Enrolled"
+        }
+    }
+}
+```
+
+### Hub Mapping Logic
+
+```swift GameManager.swift
+func hubForEnrollmentStatus(_ status: EnrollmentStatus) -> GameHub {
+    switch status {
+    case .prospect:
+        return .careers
+    case .offerHolder:
+        // Check if firm choice is set
+        if authManager.currentUser?.uni_id != nil {
+            return .firmChoice
+        }
+        return .offerHolder
+    case .enrolled:
+        return .campusLife
+    default:
+        return .careers
+    }
+}
+```
+
+## Zone-Based Scene Architecture
+
+The game uses a **zone-scene model** where each zone is an independent SpriteKit scene connected via boundary arrows.
+
+### Zone Configuration
+
+Zones are defined using data-driven configs (`ZoneConfig.swift:225`):
+
+```swift ZoneConfig.swift
+struct ZoneConfig: Codable, Identifiable {
+    let id: String
+    let displayName: String
+    let description: String
+    let terrainTheme: TerrainTheme
+    let accentColorHex: String
+    
+    let isLocked: Bool
+    let unlockQuestId: String?
+    let spawnPoint: CodablePoint
+    let buildings: [BuildingConfig]
+    let ambientStyle: AmbientStyle
+    
+    // Zone-scene model fields
+    let adjacencies: [ZoneAdjacency]
+    let sceneSize: CodableSize
+    let tileSetName: String
+    let backgroundAsset: String?
+    let decorations: [DecorationPlacement]
+    let npcPlacements: [NPCPlacement]
+    let particleEffect: ParticleEffectConfig?
+    let animationOverlays: [ZoneAnimationOverlay]
+    var exitZones: [ExitZone] = []
+    
+    var landscapeLayout: ZoneLayout?      // Optional landscape override
+    var collisionMapAsset: String?         // Collision geometry asset
+}
+```
+
+### Zone Adjacency
+
+Zones declare their neighbors:
+
+```swift ZoneConfig.swift
+struct ZoneAdjacency: Codable {
+    let direction: ZoneDirection
+    let targetZoneId: String
+    let arrowLabel: String  // e.g. "Career Town →"
+}
+
+enum ZoneDirection: String, Codable, CaseIterable {
+    case north, south, east, west
+    
+    var opposite: ZoneDirection {
+        switch self {
+        case .north: return .south
+        case .south: return .north
+        case .east:  return .west
+        case .west:  return .east
+        }
+    }
+}
+```
+
+### Exit Zones
+
+Players transition by walking into rectangular exit regions:
+
+```swift ZoneConfig.swift
+struct ExitZone: Codable {
+    let targetZoneId: String
+    let rect: CodableRect
+    let approachDirection: String   // "north", "south", "east", "west"
+}
+```
+
+## Scene Loading and Caching
+
+Scenes are lazily loaded and cached for performance (`GameManager.swift:201`):
+
+```swift GameManager.swift
+func loadScene(for hub: GameHub) {
+    if let cached = scenes[hub] {
+        currentScene = cached
+        return
+    }
+    
+    let scene: BaseHubScene
+    switch hub {
+    case .careers:
+        let mainHubConfig = ZoneConfigLoader.zone(byId: "main_hub")
+            ?? ZoneConfigLoader.loadExploringZoneScenes().first!
+        let zoneScene = ZoneScene(config: mainHubConfig)
+        zoneScene.scaleMode = .resizeFill
+        zoneScene.gameManager = self
+        currentZoneConfig = mainHubConfig
+        currentZoneName = mainHubConfig.displayName
+        
+        // Cache for zone navigation
+        zoneSceneCache[mainHubConfig.id] = zoneScene
+        zoneSceneCacheOrder.append(mainHubConfig.id)
+        
+        // Join multiplayer zone
+        Task {
+            await MultiplayerService.shared.joinZone(
+                hub: hub.rawValue, 
+                zone: mainHubConfig.id
+            )
+        }
+        
+        scenes[hub] = zoneScene
+        currentScene = zoneScene
+        return
+        
+    case .campusLife:
+        // Similar zone loading...
+        break
+    }
+}
+```
+
+## GameContainerView - SwiftUI Wrapper
+
+The `GameContainerView` (`GameContainerView.swift:17`) hosts the SpriteKit scene and overlays:
+
+```swift GameContainerView.swift
+struct GameContainerView: View {
+    @StateObject private var gameManager = GameManager.shared
+    @StateObject private var orientationManager = OrientationManager.shared
+    @ObservedObject var authManager = AuthManager.shared
+    
+    var body: some View {
+        ZStack {
+            // SpriteKit game layer
+            if let scene = gameManager.currentScene {
+                SpriteView(scene: scene, options: [.ignoresSiblingOrder])
+                    .ignoresSafeArea()
+                    .id(ObjectIdentifier(scene))
+            }
+            
+            // HUD overlay (swap between overworld and interior)
+            if gameManager.isInInterior {
+                InteriorHUDView(showChatOverlay: $showChatOverlay)
+            } else {
+                GameHUDView(
+                    showMessagesOverlay: $showMessagesOverlay,
+                    showChatOverlay: $showChatOverlay,
+                    showFeedOverlay: $showFeedOverlay
+                )
+            }
+            
+            // Feature overlay (existing views presented over game)
+            if gameManager.isFeatureOverlayPresented,
+               let destination = gameManager.activeFeatureDestination {
+                FeatureOverlayView(destination: destination)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            
+            // Building interior overlay
+            if gameManager.isBuildingInteriorPresented,
+               let interior = gameManager.activeBuildingInterior {
+                BuildingInteriorView(interior: interior)
+                    .transition(.opacity)
+            }
+            
+            // NPC conversation overlay
+            if gameManager.isConversationPresented,
+               let config = gameManager.activeConversation {
+                NPCConversationView(config: config)
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+```
+
+## Building Interactions
+
+When a player taps a building, the game triggers existing app navigation:
+
+```swift GameManager.swift
+func showFeature(_ destination: AppDestination) {
+    activeFeatureDestination = destination
+    // Lock to portrait for content viewing
+    OrientationManager.shared.lockToPortraitForContent()
+    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+        isFeatureOverlayPresented = true
+    }
+}
+
+func dismissFeature() {
+    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+        isFeatureOverlayPresented = false
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+        self?.activeFeatureDestination = nil
+        OrientationManager.shared.unlockBackToGame()
+    }
+}
+```
+
+## Building Configuration
+
+```swift
+struct BuildingConfig: Codable {
+    let buildingId: String
+    let displayName: String
+    let emoji: String
+    let position: CodablePoint
+    let size: CodableSize
+    let rotationDegrees: CGFloat
+    let color: String           // Hex color
+    let interactionType: BuildingInteractionType
+    let destination: String?    // AppDestination case name
+    let isLocked: Bool
+    let unlockLevel: Int?
+}
+
+enum BuildingInteractionType: String, Codable {
+    case navigation         // Opens app destination
+    case interior          // Multi-section building
+    case minigame         // Launches game
+    case shop            // Opens shop overlay
+}
+```
+
+## Decoration System
+
+Zones can include static decorations:
+
+```swift ZoneConfig.swift
+struct DecorationPlacement: Codable {
+    let type: String        // e.g. "tree_oak", "bench", "fountain"
+    let position: CodablePoint
+    let scale: CGFloat
+    let rotation: CGFloat   // radians
+}
+```
+
+Decorations are rendered by `DecorationFactory.swift`:
+
+```swift
+static func createDecoration(
+    type: String, 
+    position: CGPoint, 
+    scale: CGFloat, 
+    rotation: CGFloat
+) -> SKNode? {
+    switch type {
+    case "tree_oak":
+        return createOakTree(scale: scale)
+    case "bench":
+        return createBench(scale: scale)
+    case "fountain":
+        return createFountain(scale: scale)
+    // ...
+    }
+}
+```
+
+## Animation Overlays
+
+Zones support procedural animations:
+
+```swift ZoneConfig.swift
+enum AnimationOverlayType: String, Codable {
+    case chimneySmoke       // Rising smoke particles
+    case flagWaving         // Swaying flag
+    case waterRipple        // Expanding rings
+    case lightGlow          // Pulsing light
+    case sparkle            // Star bursts
+    case birdsFlying        // Looping bird paths
+    case leavesFloating     // Drifting leaves
+    case neonFlicker        // Flickering neon
+    case fountainSpray      // Upward droplets
+    case cherryBlossom      // Falling petals
+}
+```
+
+## NPC System
+
+NPCs are placed in zones and can trigger dialogue:
+
+```swift ZoneConfig.swift
+struct NPCPlacement: Codable {
+    let name: String
+    let emoji: String
+    let colorHex: String
+    let position: CodablePoint
+    let dialogue: [String]
+    let mascotType: String?   // Uses ImageNPCNode when set
+}
+```
+
+NPC interaction:
+
+```swift GameManager.swift
+func showConversation(_ config: ConversationConfig) {
+    activeConversation = config
+    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+        isConversationPresented = true
+    }
+}
+```
+
+## Collision Detection
+
+Zones can load polygon collision maps:
+
+```swift ZoneConfig.swift
+var collisionMapAsset: String?  // e.g. "main_hub"
+```
+
+Collision data is stored as JSON and loaded by `ZoneCollisionMap.swift`:
+
+```swift
+struct CollisionPolygon: Codable {
+    let points: [CodablePoint]
+    let label: String?
+}
+
+struct ZoneCollisionMap: Codable {
+    let zoneId: String
+    let polygons: [CollisionPolygon]
+}
+```
+
+Collision detection uses line-segment intersection tests for slide-along-edge movement.
+
+## Orientation Support
+
+Zones can define separate layouts for portrait and landscape:
+
+```swift ZoneConfig.swift
+struct ZoneLayout: Codable {
+    let spawnPoint: CodablePoint
+    let buildings: [String: BuildingLayout]
+    let decorations: [DecorationLayout]
+    let npcs: [String: CodablePoint]
+    let animationOverlays: [AnimationOverlayLayout]
+    let exitZones: [ExitZone]
+}
+
+func layout(for orientation: String) -> ZoneLayout {
+    if orientation == "landscape", let landscape = landscapeLayout {
+        return landscape
+    }
+    // Synthesise portrait layout from inline fields
+    return ZoneLayout(...)
+}
+```
+
+## Multiplayer Integration
+
+The game integrates with `MultiplayerService` for real-time player presence:
+
+```swift
+Task {
+    await MultiplayerService.shared.joinZone(
+        hub: hub.rawValue, 
+        zone: zoneId
+    )
+    ZoneChatService.shared.clearMessages()
+    await ZoneChatService.shared.loadHistory(
+        zoneId: MultiplayerService.channelKey(hub: hub.rawValue, zone: zoneId)
+    )
+}
+```
+
+## Performance Optimizations
+
+<AccordionGroup>
+  <Accordion title="Scene Caching">
+    Previously visited zones remain in memory (up to 3 zones) for instant revisits.
+  </Accordion>
+  
+  <Accordion title="Viewport Culling">
+    `ViewportCullingManager` hides off-screen nodes to reduce rendering overhead.
+  </Accordion>
+  
+  <Accordion title="Lazy Asset Loading">
+    Zone assets (decorations, NPCs) are only instantiated when the zone is entered.
+  </Accordion>
+  
+  <Accordion title="Batched Rendering">
+    Similar decorations use texture atlases and batch rendering.
+  </Accordion>
+</AccordionGroup>
+
+## Game-First Mode
+
+When `isGameFirstMode` is true, the app shows only the game world without tabs:
+
+```swift MasterTabView.swift
+if useGameHub {
+    GameContainerView()
+} else {
+    tabContent
+}
+```
+
+Tab navigation translates to zone navigation in game mode:
+
+```swift NavigationRouter.swift
+func switchToTab(_ tab: TabSelectionUniPrepStage) {
+    if GameManager.shared.isGameFirstMode {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectedTab = tab
+        }
+        return
+    }
+    // Normal tab switch
+}
+```
+
+## Architecture Benefits
+
+1. **Data-Driven**: Zones configured via JSON, no code changes needed
+2. **SwiftUI Integration**: Game state exposed via `@Published` properties
+3. **Reusable Components**: Decorations, NPCs, and animations are composable
+4. **Multiplayer-Ready**: Built-in presence and chat integration
+5. **Adaptive**: Adjusts to user's enrollment status automatically
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="building" href="/technical/architecture-overview">
+    Learn how the game integrates with the app architecture
+  </Card>
+  <Card title="Navigation System" icon="compass" href="/technical/navigation-system">
+    Understand how building taps trigger app navigation
+  </Card>
+</CardGroup>

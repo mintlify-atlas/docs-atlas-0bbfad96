@@ -1,0 +1,298 @@
+---
+title: "Development Setup"
+description: "Set up your development environment to build and run the Chapter iOS app"
+---
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed on your Mac:
+
+<CardGroup cols={2}>
+  <Card title="Xcode 16+" icon="apple">
+    Download from the Mac App Store or Apple Developer portal
+  </Card>
+  <Card title="macOS" icon="desktop">
+    Latest macOS version recommended for Xcode compatibility
+  </Card>
+  <Card title="Git" icon="git">
+    For cloning the repository and version control
+  </Card>
+  <Card title="Command Line Tools" icon="terminal">
+    Installed via `xcode-select --install`
+  </Card>
+</CardGroup>
+
+## System Requirements
+
+- **Xcode Version**: 16.0 or later
+- **iOS Deployment Target**: iOS 17.0+
+- **Swift Version**: 5.0
+- **macOS**: Latest version recommended
+
+## Getting Started
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the Chapter iOS repository to your local machine:
+    
+    ```bash
+    git clone <repository-url>
+    cd chapter-ios
+    ```
+  </Step>
+
+  <Step title="Open the Xcode Project">
+    Open the Xcode project file:
+    
+    ```bash
+    open Chapter.xcodeproj
+    ```
+    
+    <Note>
+      The project uses Swift Package Manager (SPM) for dependency management. Xcode will automatically resolve and download dependencies when you first open the project.
+    </Note>
+  </Step>
+
+  <Step title="Configure Secrets">
+    The app uses a `Secrets.xcconfig` file for sensitive configuration values. This file is gitignored for security.
+    
+    Create a `Secrets.xcconfig` file in the `Chapter/` directory:
+    
+    ```bash
+    touch Chapter/Secrets.xcconfig
+    ```
+    
+    Add your configuration values:
+    
+    ```properties
+    SUPABASE_URL = your_supabase_url
+    SUPABASE_ANON_KEY = your_supabase_anon_key
+    MIXPANEL_TOKEN = your_mixpanel_token
+    ```
+    
+    <Warning>
+      Never commit `Secrets.xcconfig` to version control. This file contains sensitive API keys and credentials.
+    </Warning>
+  </Step>
+
+  <Step title="Add Firebase Configuration">
+    The app uses Firebase for push notifications and analytics.
+    
+    1. Download `GoogleService-Info.plist` from your Firebase console
+    2. Add it to the `Chapter/` directory in Xcode
+    3. Ensure it's included in the Chapter target
+    
+    <Note>
+      The file `Chapter/GoogleService-Info.plist` already exists in the project structure. Replace it with your own Firebase configuration.
+    </Note>
+  </Step>
+
+  <Step title="Wait for SPM Dependencies">
+    Xcode will automatically resolve Swift Package Manager dependencies. This may take a few minutes on first setup.
+    
+    You can monitor progress in Xcode's status bar or via:
+    ```
+    File → Packages → Resolve Package Versions
+    ```
+  </Step>
+
+  <Step title="Select a Build Target">
+    1. In Xcode, select a simulator or connected device from the scheme selector
+    2. Choose the `Chapter` scheme
+    3. Press `Cmd + R` to build and run
+  </Step>
+</Steps>
+
+## Dependencies
+
+The project uses **Swift Package Manager (SPM)** for all dependencies. No CocoaPods or Carthage required.
+
+### Key Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|----------|
+| **Supabase Swift** | 2.26.1 | Backend services, auth, database, storage |
+| **Firebase iOS SDK** | 11.11.0 | Push notifications, analytics, messaging |
+| **Mapbox Maps** | 11.13.1 | Interactive maps for accommodation and campus views |
+| **Kingfisher** | 8.1.3 | Async image loading and caching |
+| **Mixpanel** | master | User analytics and event tracking |
+| **Snap Kit** | 2.6.0 | Snapchat integration and authentication |
+| **Soto (AWS SDK)** | 7.5.0 | Cloudflare R2 / S3 storage operations |
+
+<Accordion title="View all dependencies">
+  Additional dependencies include:
+  - **SwiftSoup** (2.7.2): HTML parsing
+  - **Swift Collections** (1.1.4): Advanced data structures
+  - **Swift Algorithms** (1.2.1): Algorithm utilities
+  - **Swift NIO** (2.81.0): Async networking foundation
+  - **Swift Crypto** (3.4.0): Cryptographic operations
+  
+  See `Chapter.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved` for the complete dependency tree.
+</Accordion>
+
+## Configuration Files
+
+### Info.plist
+
+Located at `Chapter/Info.plist`, this file contains:
+- Bundle identifier: `Chapter.Chapter`
+- URL schemes: `chapter://` for deep linking
+- Required permissions (location, notifications, camera, photo library)
+- Firebase and Google Ads configuration
+
+### Entitlements
+
+`Chapter/Chapter.entitlements` defines app capabilities:
+- Push notifications
+- Associated domains (for universal links)
+- Keychain access groups
+- Background modes
+
+## Build Configurations
+
+The project includes standard Debug and Release configurations:
+
+<CodeGroup>
+```swift Debug
+// Optimized for development
+// - Debug symbols enabled
+// - Optimization level: None (-Onone)
+// - Assertions enabled
+```
+
+```swift Release
+// Optimized for production
+// - Debug symbols stripped
+// - Optimization level: Optimize for Speed (-O)
+// - Assertions disabled
+```
+</CodeGroup>
+
+## Environment Setup
+
+### Supabase Backend
+
+The app connects to a Supabase backend for:
+- User authentication and authorization
+- PostgreSQL database for all app data
+- Realtime subscriptions for chat and presence
+- File storage (profile pictures, documents)
+- Edge functions for server-side logic
+
+**Required Supabase tables:**
+- `users` / `group_users`
+- `universities_v2`
+- `courses_v2`
+- `group_chats`
+- `messages`
+- `calendar_events`
+- `device_tokens`
+- `shortlists`
+- And many more...
+
+<Note>
+  Contact your team lead for access to the Supabase project and credentials.
+</Note>
+
+### Firebase Setup
+
+1. Create a Firebase project or get added to the existing one
+2. Download `GoogleService-Info.plist`
+3. Enable Firebase Cloud Messaging (FCM)
+4. Configure APNs authentication (upload APNs key or certificate)
+
+### Third-Party Services
+
+You'll need API keys/tokens for:
+- **Mixpanel**: Analytics tracking
+- **Snapchat Snap Kit**: Social integration
+- **Mapbox**: Map rendering (token in code or config)
+- **Cloudflare R2**: Object storage (via AWS S3 SDK)
+
+## Running the App
+
+### First Launch
+
+On first launch, the app will:
+1. Initialize Firebase and Mixpanel
+2. Attempt to restore user session from Supabase
+3. Show onboarding flow if no user is signed in
+4. Request notification permissions
+5. Register for remote notifications
+
+### Common Build Issues
+
+<AccordionGroup>
+  <Accordion title="SPM dependency resolution fails">
+    **Solution:**
+    1. Clear SPM cache: `rm -rf ~/Library/Caches/org.swift.swiftpm`
+    2. Clear derived data: `rm -rf ~/Library/Developer/Xcode/DerivedData`
+    3. In Xcode: File → Packages → Reset Package Caches
+    4. Restart Xcode
+  </Accordion>
+
+  <Accordion title="Secrets.xcconfig not found">
+    **Solution:**
+    Ensure you've created `Chapter/Secrets.xcconfig` with all required keys. Check that the file is in the correct location (not in the root directory).
+  </Accordion>
+
+  <Accordion title="Firebase initialization error">
+    **Solution:**
+    1. Verify `GoogleService-Info.plist` is in the project
+    2. Check it's added to the Chapter target (not just the project)
+    3. Ensure bundle identifier matches Firebase configuration
+  </Accordion>
+
+  <Accordion title="Signing & Capabilities errors">
+    **Solution:**
+    1. Select your development team in Xcode → Signing & Capabilities
+    2. Change bundle identifier if needed to match your team
+    3. Ensure provisioning profiles are up to date
+  </Accordion>
+</AccordionGroup>
+
+## Simulator vs Device Testing
+
+### Simulator Limitations
+
+<Warning>
+  The following features don't work in the iOS Simulator:
+  - Push notifications (APNs)
+  - Camera capture
+  - True GPS location (can simulate location)
+  - Snapchat authentication (requires real device)
+</Warning>
+
+### Testing on Device
+
+For full functionality testing:
+1. Connect your iPhone/iPad via USB
+2. Trust the computer on your device
+3. Select your device in Xcode's scheme selector
+4. Ensure your device is added to provisioning profiles
+5. Build and run (`Cmd + R`)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Code Structure" icon="folder-tree" href="/development/code-structure">
+    Learn about the app's architecture and file organization
+  </Card>
+  <Card title="Contributing" icon="code-pull-request" href="/development/contributing">
+    Read the contribution guidelines and PR process
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. **Check Xcode version**: Ensure you're running Xcode 16.0+
+2. **Clean build folder**: `Cmd + Shift + K` or Product → Clean Build Folder
+3. **Reset package caches**: File → Packages → Reset Package Caches
+4. **Review logs**: Check Xcode console for specific error messages
+5. **Ask for help**: Reach out to the team on Slack or create an issue
+
+<Tip>
+  Enable verbose build output in Xcode (Preferences → Behaviors → Build) to see detailed compilation errors.
+</Tip>

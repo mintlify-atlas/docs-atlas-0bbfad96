@@ -1,122 +1,115 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Chapter",
+  "theme": "palm",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#4A90E2",
+    "light": "#7B68EE",
+    "dark": "#2C5282"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/lukethesamo/Chapter-iOS"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/lukethesamo/Chapter-iOS"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "student-journey-stages"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Features",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "features/hub-system",
+              "features/course-discovery",
+              "features/university-search",
+              "features/accommodation",
+              "features/whats-on"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Social & Community",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "social/groups-and-messaging",
+              "social/campus-feed",
+              "social/events-calendar",
+              "social/societies-sports"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Tools & Planning",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "tools/career-paths",
+              "tools/career-arcade",
+              "tools/comparison-tools",
+              "tools/cost-estimator",
+              "tools/lists-checklists"
+            ]
+          },
+          {
+            "group": "Game World",
+            "pages": [
+              "game/game-hub-overview",
+              "game/multiplayer-features",
+              "game/avatar-customization"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "guides/for-prospects",
+              "guides/for-offer-holders",
+              "guides/for-students",
+              "guides/international-students"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Technical Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Architecture",
             "pages": [
-              "api-reference/introduction"
+              "technical/architecture-overview",
+              "technical/navigation-system",
+              "technical/data-models",
+              "technical/game-architecture"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Services & APIs",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "technical/supabase-integration",
+              "technical/authentication",
+              "technical/real-time-features",
+              "technical/data-services"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/code-structure",
+              "development/contributing"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

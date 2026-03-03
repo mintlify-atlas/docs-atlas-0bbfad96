@@ -1,0 +1,500 @@
+---
+title: "What's On"
+description: 'Map-based discovery platform for events, courses, universities, accommodation, and open days'
+---
+
+What's On is Chapter's unified discovery hub that brings together courses, universities, accommodation, events, societies, sports, and open days into a single map-based search experience.
+
+## Overview
+
+What's On adapts to show relevant categories based on your student journey stage:
+
+<Tabs>
+  <Tab title="Prospects">
+    - Courses (28,000+ options)
+    - Universities (140+ institutions)
+    - Open Days (400+ events)
+    - Accommodation (2,500+ properties)
+    - Apprenticeships (job listings)
+  </Tab>
+  <Tab title="Offer Holders">
+    - Events (10,000+ campus events)
+    - Societies (20,000+ student groups)
+    - Sports (clubs and fixtures)
+    - Accommodation (prioritized based on offer universities)
+  </Tab>
+  <Tab title="Enrolled Students">
+    - Events (campus and city events)
+    - Societies (join student groups)
+    - Sports (fixtures and competitions)
+  </Tab>
+</Tabs>
+
+## Map-First Interface
+
+The primary view is an interactive map with overlaid search controls:
+
+### Map Features
+
+<CardGroup cols={2}>
+  <Card title="Markers" icon="location-dot">
+    Color-coded pins for different categories (courses, events, properties)
+  </Card>
+  <Card title="Clustering" icon="layer-group">
+    Automatic grouping of nearby items with count badges
+  </Card>
+  <Card title="Annotations" icon="circle-info">
+    City markers that filter results when tapped
+  </Card>
+  <Card title="Camera" icon="camera">
+    Independent viewport for each category (remembers your position)
+  </Card>
+</CardGroup>
+
+### Map Controls
+
+<AccordionGroup>
+  <Accordion title="Style Switcher">
+    Choose from map styles:
+    - **Standard**: Clean streets and labels
+    - **Satellite**: Aerial imagery
+    - **Hybrid**: Satellite with street overlays
+    - **Dark**: Night mode map
+  </Accordion>
+  <Accordion title="Light Preset">
+    Adjust map lighting for time of day:
+    - Day, Dawn, Dusk, Night
+  </Accordion>
+  <Accordion title="Location">
+    - Recenter on current location
+    - Show distance radius
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  Map style and light preset preferences are saved and persist across app sessions.
+</Note>
+
+## Category Selector
+
+Horizontal scrolling pill selector at the top:
+
+### Available Categories
+
+<Tabs>
+  <Tab title="Courses">
+    28,000+ university courses across the UK
+  </Tab>
+  <Tab title="Universities">
+    140+ higher education institutions
+  </Tab>
+  <Tab title="Open Days">
+    400+ upcoming campus visit events
+  </Tab>
+  <Tab title="Accommodation">
+    2,500+ student properties
+  </Tab>
+  <Tab title="Events">
+    10,000+ campus and city events
+  </Tab>
+  <Tab title="Societies">
+    20,000+ student clubs and groups
+  </Tab>
+  <Tab title="Sports">
+    Fixtures, teams, and sports clubs
+  </Tab>
+  <Tab title="Apprenticeships">
+    Job listings and apprenticeship opportunities
+  </Tab>
+</Tabs>
+
+Tap any category to switch the map view and search results.
+
+<Tip>
+  Categories are context-aware: prospects see different options than enrolled students.
+</Tip>
+
+## Search Bar
+
+Persistent search interface at the top showing:
+- Current search query (or category default)
+- Active filter count badge
+- Sort button (tap to cycle, long-press for menu)
+- Filter button (opens advanced filters)
+
+### Smart Search Titles
+
+Search bar displays context-specific placeholders:
+
+| Category | Search Title |
+|----------|-------------|
+| Courses | "Search 28k+ Courses" |
+| Universities | "Search 140+ Universities" |
+| Open Days | "Search 400+ Open Days" |
+| Accommodation | "Search 2.5k+ Properties" |
+| Events | "Search 10k+ Events" |
+| Societies | "Search 20K+ Societies" |
+
+### Search Subtitles
+
+Contextual hints below the search bar:
+
+<Tabs>
+  <Tab title="Courses">
+    "Business · Law · Medicine · Psychology"
+  </Tab>
+  <Tab title="Universities">
+    "Russell Group · London · Scotland"
+  </Tab>
+  <Tab title="Accommodation">
+    "Studios · Ensuites · Shared"
+  </Tab>
+  <Tab title="Events">
+    "Club nights · Gigs · Freshers"
+  </Tab>
+</Tabs>
+
+## Draggable Search Sheet
+
+Below the map, a draggable sheet displays search results:
+
+### Sheet Positions
+
+<Steps>
+  <Step title="Collapsed (Bottom)">
+    Shows category selector and result count. Map fully visible.
+  </Step>
+  <Step title="Half-Sheet (Middle)">
+    Scrollable result list with map visible at top.
+  </Step>
+  <Step title="Full-Screen (Top)">
+    Results take over screen. Map header still visible.
+  </Step>
+</Steps>
+
+<Tip>
+  Drag the sheet handle up/down to adjust height. The map zooms in/out automatically based on sheet position.
+</Tip>
+
+### Sheet Sync
+
+Zoom synchronization:
+- **Expanding sheet** (dragging up) → Map zooms out for broader area view
+- **Collapsing sheet** (dragging down) → Map zooms in for detail
+- Smooth 1:1 gesture tracking for natural feel
+
+<Note>
+  Zoom sync uses the base zoom level when drag starts, preventing jarring camera jumps.
+</Note>
+
+## Search Results
+
+Results are displayed as cards in the sheet:
+
+### Course Cards
+- Course name and university
+- UCAS code
+- Entry requirements
+- Tuition fees
+- Match percentage (if using Course Match)
+
+### University Cards
+- University logo and name
+- Location and founded year
+- Student population
+- Key rankings
+- Russell Group badge
+
+### Accommodation Cards
+- Property images (swipeable carousel)
+- Property name and provider
+- Room types and prices
+- Distance to campus/city center
+- Amenity icons
+
+### Event Cards
+- Event cover image
+- Title and venue
+- Date and time
+- Ticket price
+- Event category badge
+
+### Open Day Cards
+- University logo
+- Event type (in-person/virtual)
+- Date and time
+- Registration link
+- Subjects covered
+
+## Advanced Filters
+
+Tap the filter button to open category-specific filters:
+
+### Courses Filters
+
+<AccordionGroup>
+  <Accordion title="Subject & Category">
+    - Subject category (Business, STEM, Arts, etc.)
+    - Specific course keywords
+  </Accordion>
+  <Accordion title="Entry Requirements">
+    - UCAS points range
+    - A-Level grades
+    - Qualification types accepted
+  </Accordion>
+  <Accordion title="Location">
+    - City/region
+    - Distance from your location
+    - Campus type
+  </Accordion>
+  <Accordion title="Cost">
+    - Tuition fee range
+    - Total cost estimate
+  </Accordion>
+</AccordionGroup>
+
+### Accommodation Filters
+
+<AccordionGroup>
+  <Accordion title="Price">
+    - Weekly rent range (£47-£655)
+    - Annual cost calculation
+  </Accordion>
+  <Accordion title="Room Type">
+    - Single rooms
+    - Studios
+    - Apartments
+  </Accordion>
+  <Accordion title="Amenities">
+    - WiFi, Gym, Common Room, Study Area, Cinema
+    - Security, Parking, Bike Storage
+  </Accordion>
+  <Accordion title="Provider">
+    - University halls
+    - Private PBSA providers
+  </Accordion>
+</AccordionGroup>
+
+### Events Filters
+
+<AccordionGroup>
+  <Accordion title="Date Range">
+    - Today, This Week, This Month
+    - Custom date picker
+  </Accordion>
+  <Accordion title="Event Type">
+    - Club Nights, Gigs, Sports, Academic
+    - Freshers Events, Societies
+  </Accordion>
+  <Accordion title="Price">
+    - Free events only
+    - Max ticket price
+  </Accordion>
+</AccordionGroup>
+
+### Open Days Filters
+
+- **Event Type**: In-person, Virtual, Hybrid
+- **Date Range**: Upcoming, This Month, Next 3 Months
+- **Subject Area**: Filter by degree subject
+- **University**: Specific institutions
+
+<Note>
+  Filter count badge on the search bar shows total active filters across all categories.
+</Note>
+
+## Sorting Options
+
+Quick sort accessed via the sort button:
+
+<Tabs>
+  <Tab title="Tap Once">
+    Cycles through common sort methods:
+    - Distance (nearest first)
+    - Price (cheapest first)
+    - Relevance (best match)
+  </Tab>
+  <Tab title="Long Press">
+    Opens full sort menu with all options:
+    - Match percentage
+    - Popularity
+    - Date (for events/open days)
+    - Alphabetical
+  </Tab>
+</Tabs>
+
+<Tip>
+  The sort icon changes to show current sort method (e.g., location pin for distance, £ for price).
+</Tip>
+
+## City Filtering
+
+Tap city annotations on the map to filter results:
+
+<Steps>
+  <Step title="Select City">
+    Tap a city marker (e.g., "London", "Edinburgh")
+  </Step>
+  <Step title="View Results">
+    Map zooms to that city, results filter automatically
+  </Step>
+  <Step title="Clear Filter">
+    Tap the city badge at the top to remove filter
+  </Step>
+</Steps>
+
+City filter shows in search bar subtitle: "in London" or "in Edinburgh".
+
+## Map Preview Cards
+
+When you tap a map marker, a preview card appears:
+
+### Quick Info
+- Primary image
+- Title and key details
+- Price/cost information
+- Quick action button ("View Details")
+
+### Actions
+- **View Full Details**: Opens full profile
+- **Add to Shortlist**: Quick save (courses/universities)
+- **Directions**: Get walking/driving directions
+
+<Info>
+  Preview cards automatically collapse when you tap another marker or drag the map.
+</Info>
+
+## Header Visibility
+
+Intelligent header hiding:
+- **Scrolling down** in sheet (results moving up) → Header hides
+- **Scrolling up** in sheet (results moving down) → Header shows
+- **Sheet position**: Header hides when sheet is fully expanded and scrolled
+
+<Note>
+  This maximizes screen space for results while keeping controls accessible.
+</Note>
+
+## Search Overlay
+
+Tap the search bar to open full search interface:
+
+### Full-Screen Search
+- Large search input field
+- Recent searches (last 10 per category)
+- Suggested filters
+- Quick category shortcuts
+
+<Steps>
+  <Step title="Enter Search">
+    Type your query (debounced for performance)
+  </Step>
+  <Step title="Select Suggestion">
+    Tap recent search or autocomplete result
+  </Step>
+  <Step title="View Results">
+    Search executes, overlay closes, results update
+  </Step>
+</Steps>
+
+### Recent Searches
+
+Automatically saved per category:
+- Stored in Supabase (synced across devices)
+- Tap to re-run search
+- Tap X to delete individual searches
+- "Clear All" button to reset
+
+<Warning>
+  Recent searches are category-specific. Switching categories shows different search history.
+</Warning>
+
+## Performance Optimizations
+
+### Data Loading
+
+<Tabs>
+  <Tab title="Initial Load">
+    - Skeleton screens during first data fetch
+    - Category data loaded on-demand (not all at once)
+    - Map markers load separately from sheet results
+  </Tab>
+  <Tab title="Pagination">
+    - Results load in batches (20 items per page)
+    - Infinite scroll triggers next batch at 2 items from end
+    - Smooth loading indicators
+  </Tab>
+  <Tab title="Caching">
+    - Viewport positions cached per category
+    - Map data cached after first load (3,000+ items)
+    - Filter states preserved during category switch
+  </Tab>
+</Tabs>
+
+### Search Debouncing
+
+All search inputs are debounced:
+- **Text Search**: 500ms delay after typing stops
+- **Filters**: 1-second delay after filter change
+- **Map Pan**: Results update when map stops moving
+
+This prevents excessive API calls and ensures smooth performance.
+
+## Integration with Other Features
+
+What's On connects to:
+
+<CardGroup cols={2}>
+  <Card title="Hub" href="/features/hub-system" icon="home">
+    Recent searches and recommendations appear in Hub carousels
+  </Card>
+  <Card title="Course Discovery" href="/features/course-discovery" icon="graduation-cap">
+    Shares course data and filters
+  </Card>
+  <Card title="University Search" href="/features/university-search" icon="building-columns">
+    Shared university profiles and rankings
+  </Card>
+  <Card title="Accommodation" href="/features/accommodation" icon="house">
+    Unified property search with map integration
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use the Map Strategically">
+    - Explore unfamiliar cities visually
+    - Compare distances between properties and campuses
+    - Discover clusters of options in specific areas
+  </Accordion>
+  <Accordion title="Combine Filters">
+    - Start broad, narrow down gradually
+    - Use price and distance together for accommodation
+    - Filter by date for events and open days
+  </Accordion>
+  <Accordion title="Save Searches">
+    - Recent searches auto-save per category
+    - Shortlist items for later comparison
+    - Share discoveries with family/friends
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Map not loading">
+    - Check internet connection
+    - Allow location services for distance features
+    - Force refresh by pulling down on the sheet
+  </Accordion>
+  <Accordion title="No results found">
+    - Clear some filters to broaden search
+    - Check you're in the correct category
+    - Verify city filter isn't too restrictive
+  </Accordion>
+  <Accordion title="Results not updating">
+    - Wait for debounce delay (text search: 500ms)
+    - Scroll the sheet to trigger pagination
+    - Close and reopen filter sheet to apply changes
+  </Accordion>
+</AccordionGroup>

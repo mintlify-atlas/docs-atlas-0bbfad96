@@ -1,0 +1,756 @@
+---
+title: "Contributing Guide"
+description: "Guidelines for contributing to the Chapter iOS app"
+---
+
+## Welcome Contributors!
+
+We're excited that you want to contribute to Chapter! This guide will help you understand our development workflow, code standards, and PR process.
+
+## Getting Started
+
+Before contributing, make sure you've:
+
+<Steps>
+  <Step title="Set up your development environment">
+    Follow the [Setup Guide](/development/setup) to install Xcode and configure the project.
+  </Step>
+  
+  <Step title="Understand the codebase">
+    Review the [Code Structure](/development/code-structure) to familiarize yourself with the architecture.
+  </Step>
+  
+  <Step title="Join the team communication">
+    Get access to the team's Slack workspace or communication channel.
+  </Step>
+  
+  <Step title="Pick an issue or feature">
+    Browse open issues or discuss new features with the team before starting.
+  </Step>
+</Steps>
+
+## Development Workflow
+
+### Branching Strategy
+
+We use a feature branch workflow:
+
+```bash
+# Create a new branch from main
+git checkout main
+git pull origin main
+git checkout -b feature/your-feature-name
+
+# Or for bug fixes
+git checkout -b fix/issue-description
+```
+
+**Branch naming conventions:**
+
+| Type | Prefix | Example |
+|------|--------|----------|
+| New feature | `feature/` | `feature/accommodation-filters` |
+| Bug fix | `fix/` | `fix/crash-on-profile-load` |
+| Refactor | `refactor/` | `refactor/navigation-router` |
+| Documentation | `docs/` | `docs/update-readme` |
+| Performance | `perf/` | `perf/optimize-image-loading` |
+
+### Making Changes
+
+<Steps>
+  <Step title="Write your code">
+    Follow our [code style guidelines](#code-style) and keep changes focused on a single feature or fix.
+  </Step>
+  
+  <Step title="Test thoroughly">
+    - Test on both simulator and physical device
+    - Test different iOS versions if applicable
+    - Verify your changes don't break existing functionality
+    - Test with different enrollment statuses (prospect, offerHolder, enrolled)
+  </Step>
+  
+  <Step title="Commit your changes">
+    Write clear, descriptive commit messages following our [commit conventions](#commit-messages).
+  </Step>
+  
+  <Step title="Push and create PR">
+    Push your branch and open a pull request following our [PR guidelines](#pull-request-process).
+  </Step>
+</Steps>
+
+## Code Style
+
+### Swift Style Guide
+
+We follow Swift's official [API Design Guidelines](https://swift.org/documentation/api-design-guidelines/) with some project-specific conventions.
+
+#### Naming Conventions
+
+<CodeGroup>
+```swift Good ✅
+// Clear, descriptive names
+class AccommodationV2Manager: ObservableObject {
+    @Published var accommodations: [AccommodationV2] = []
+    @Published var isLoading = false
+    
+    func fetchAccommodations(for universityID: Int) async {
+        // Implementation
+    }
+}
+
+// Use meaningful variable names
+let filteredUniversities = universities.filter { $0.ranking < 50 }
+
+// Boolean properties should read like assertions
+var isAuthenticated: Bool
+var hasCompletedOnboarding: Bool
+```
+
+```swift Bad ❌
+// Unclear or abbreviated names
+class AccomMgr: ObservableObject {
+    @Published var data: [AccommodationV2] = []
+    @Published var loading = false
+    
+    func fetch(_ id: Int) async {
+        // Implementation
+    }
+}
+
+// Single letter variables (except in short closures)
+let u = universities.filter { $0.ranking < 50 }
+
+// Non-descriptive boolean names
+var authenticated: Bool
+var onboarding: Bool
+```
+</CodeGroup>
+
+#### Code Organization
+
+```swift
+// MARK: - PropertyWrappers & Properties
+class CourseDetailViewModel: ObservableObject {
+    // MARK: - Published Properties
+    @Published var course: Course_V2?
+    @Published var isLoading = false
+    @Published var error: Error?
+    
+    // MARK: - Private Properties
+    private let supabase = AuthManager.shared.supabase
+    private var cancellables = Set<AnyCancellable>()
+    
+    // MARK: - Initialization
+    init(courseId: UUID) {
+        // Setup
+    }
+    
+    // MARK: - Public Methods
+    func loadCourse() async {
+        // Implementation
+    }
+    
+    // MARK: - Private Methods
+    private func updateState() {
+        // Implementation
+    }
+}
+```
+
+#### SwiftUI View Structure
+
+```swift
+struct CourseDetailView: View {
+    // MARK: - Environment
+    @EnvironmentObject var container: AppContainer
+    @Environment(\.colorScheme) var colorScheme
+    
+    // MARK: - State
+    @StateObject private var viewModel: CourseDetailViewModel
+    @State private var showShareSheet = false
+    
+    // MARK: - Properties
+    let courseId: UUID
+    
+    // MARK: - Body
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                headerSection
+                detailsSection
+                modulesSection
+            }
+        }
+        .navigationTitle(viewModel.course?.name ?? "Course")
+        .toolbar {
+            toolbarContent
+        }
+    }
+    
+    // MARK: - View Components
+    private var headerSection: some View {
+        // Implementation
+    }
+    
+    private var detailsSection: some View {
+        // Implementation
+    }
+    
+    private var modulesSection: some View {
+        // Implementation
+    }
+    
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        // Implementation
+    }
+}
+```
+
+### Formatting Rules
+
+<AccordionGroup>
+  <Accordion title="Indentation & Spacing">
+    - Use **4 spaces** for indentation (not tabs)
+    - Add blank lines between logical sections
+    - Keep line length under 120 characters when practical
+    - Add spaces around operators: `let sum = a + b`
+  </Accordion>
+  
+  <Accordion title="Braces & Parentheses">
+    - Opening brace on same line: `func myFunc() {`
+    - Closing brace on new line aligned with opening statement
+    - No space before parentheses in function calls
+    - Space after keywords: `if condition {`, `for item in items {`
+  </Accordion>
+  
+  <Accordion title="Imports">
+    - Group imports by framework:
+    ```swift
+    // System frameworks
+    import SwiftUI
+    import Combine
+    
+    // Third-party
+    import Supabase
+    import Kingfisher
+    
+    // Internal (if needed)
+    @testable import Chapter
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Comments & Documentation
+
+<CodeGroup>
+```swift When to Comment ✅
+// Complex business logic that needs explanation
+func calculateMatchScore(user: GroupUser, university: UniversityV2) -> Double {
+    // Match score algorithm:
+    // 1. Grade comparison (40% weight)
+    // 2. Interest alignment (30% weight)  
+    // 3. Location preference (20% weight)
+    // 4. Campus culture fit (10% weight)
+    
+    let gradeScore = calculateGradeMatch(user.grades, university.entryRequirements)
+    // ... implementation
+}
+
+// TODO: Refactor to use new GraphQL API
+// FIXME: This crashes on iOS 17.0 - investigate
+// MARK: - Network Layer
+
+/// Uploads a profile picture to Cloudflare R2 storage
+/// - Parameters:
+///   - image: The UIImage to upload
+///   - userId: The user's unique identifier
+/// - Returns: The public URL of the uploaded image
+/// - Throws: `ImageUploadError` if upload fails
+func uploadProfilePicture(_ image: UIImage, userId: UUID) async throws -> String {
+    // Implementation
+}
+```
+
+```swift When NOT to Comment ❌
+// Bad: Stating the obvious
+let count = items.count  // Get the count of items
+
+// Bad: Outdated or incorrect comments
+// This function returns a User object
+func fetchCurrentUser() -> GroupUser? {
+    // Actually returns optional now, comment is wrong
+}
+
+// Bad: Commented-out code (delete it instead)
+// func oldImplementation() {
+//     // ...
+// }
+```
+</CodeGroup>
+
+## Commit Messages
+
+Write clear, descriptive commit messages following this format:
+
+```
+<type>: <subject>
+
+<body (optional)>
+
+<footer (optional)>
+```
+
+### Commit Types
+
+| Type | Description | Example |
+|------|-------------|----------|
+| `feat` | New feature | `feat: add accommodation filter by price range` |
+| `fix` | Bug fix | `fix: resolve crash when loading empty profile` |
+| `refactor` | Code refactoring | `refactor: simplify navigation router logic` |
+| `perf` | Performance improvement | `perf: optimize image loading with Kingfisher cache` |
+| `style` | Code style changes | `style: fix indentation in CourseDetailView` |
+| `docs` | Documentation | `docs: add setup instructions to README` |
+| `test` | Tests | `test: add unit tests for MatchManager` |
+| `chore` | Maintenance | `chore: update Supabase dependency to 2.26.1` |
+
+### Examples
+
+<CodeGroup>
+```bash Good Commits ✅
+feat: add real-time chat presence indicators
+
+Implements green/gray dots next to user avatars in chat to show
+online status. Uses Supabase Realtime presence tracking.
+
+Closes #123
+
+---
+
+fix: prevent navigation stack overflow in modal sheets
+
+The NavigationRouter now properly dismisses modals before pushing
+new destinations, preventing the stack overflow that occurred when
+navigating from profile sheets.
+
+Fixes #456
+
+---
+
+refactor: extract accommodation filters into reusable component
+```
+
+```bash Bad Commits ❌
+Update files
+
+---
+
+Fixed stuff
+
+---
+
+WIP
+
+---
+
+aaaa
+```
+</CodeGroup>
+
+## Pull Request Process
+
+### Before Opening a PR
+
+<Checklist>
+  - [ ] Code builds without errors or warnings
+  - [ ] All new code follows style guidelines
+  - [ ] Changes have been tested on simulator and device
+  - [ ] No sensitive data (API keys, tokens) committed
+  - [ ] Git history is clean (no merge commits from main)
+  - [ ] Branch is up to date with `main`
+</Checklist>
+
+### Creating a Pull Request
+
+1. **Push your branch:**
+   ```bash
+   git push -u origin feature/your-feature-name
+   ```
+
+2. **Open PR on GitHub/GitLab**
+
+3. **Fill out the PR template:**
+
+```markdown
+## Summary
+Brief description of what this PR does
+
+## Changes
+- Added accommodation price range filter UI
+- Connected filter to AccommodationV2Manager
+- Updated AccommodationV2FilterView with new slider component
+
+## Testing
+- [x] Tested on iPhone 15 Pro simulator (iOS 17.5)
+- [x] Tested on physical iPhone 13 (iOS 17.4)
+- [x] Verified filter persists across app restarts
+- [x] Tested with various price ranges
+
+## Screenshots
+[Add screenshots or screen recordings]
+
+## Related Issues
+Closes #123
+Related to #456
+
+## Notes
+- Considered using a segmented control but slider provides better UX
+- Filter state is saved to UserDefaults for persistence
+```
+
+### PR Review Process
+
+<Steps>
+  <Step title="Automated Checks">
+    Wait for CI/CD checks to pass (if configured)
+  </Step>
+  
+  <Step title="Code Review">
+    Team members will review your code and provide feedback. Address comments by:
+    - Making requested changes
+    - Pushing new commits to the same branch
+    - Responding to reviewer questions
+  </Step>
+  
+  <Step title="Approval">
+    Once approved by required reviewers, your PR can be merged.
+  </Step>
+  
+  <Step title="Merge">
+    Use **"Squash and Merge"** to keep main branch history clean.
+  </Step>
+</Steps>
+
+### Responding to Review Comments
+
+<CodeGroup>
+```markdown Good Response ✅
+Thanks for catching that! I've updated the function to handle
+nil values properly and added a guard statement.
+
+See commit abc123f
+```
+
+```markdown Bad Response ❌
+ok fixed
+```
+</CodeGroup>
+
+## Testing Guidelines
+
+### Manual Testing Checklist
+
+Before submitting a PR, test:
+
+<AccordionGroup>
+  <Accordion title="Core Functionality">
+    - [ ] Feature works as intended on iPhone and iPad
+    - [ ] Feature works on iOS 17.0 minimum deployment target
+    - [ ] No crashes or console errors
+    - [ ] Loading states display correctly
+    - [ ] Error states are handled gracefully
+  </Accordion>
+  
+  <Accordion title="UI/UX">
+    - [ ] Layout adapts to different screen sizes
+    - [ ] Works in both light and dark mode
+    - [ ] Animations are smooth (60fps)
+    - [ ] Keyboard handling works correctly
+    - [ ] Navigation flows properly
+    - [ ] Tab bar shows/hides appropriately
+  </Accordion>
+  
+  <Accordion title="Data & State">
+    - [ ] Data persists correctly (UserDefaults/Supabase)
+    - [ ] State updates don't cause UI glitches
+    - [ ] Network requests handle slow connections
+    - [ ] Offline mode handled gracefully
+    - [ ] No memory leaks (check Instruments)
+  </Accordion>
+  
+  <Accordion title="Edge Cases">
+    - [ ] Empty states render correctly
+    - [ ] Very long text doesn't break layout
+    - [ ] Handles rapid user interactions
+    - [ ] Works with VoiceOver (accessibility)
+    - [ ] Handles expired auth tokens
+  </Accordion>
+</AccordionGroup>
+
+### Writing Unit Tests
+
+While test coverage is currently minimal, new critical business logic should include tests:
+
+```swift
+import XCTest
+@testable import Chapter
+
+final class MatchManagerTests: XCTestCase {
+    var sut: MatchManager!
+    
+    override func setUp() {
+        super.setUp()
+        sut = MatchManager()
+    }
+    
+    override func tearDown() {
+        sut = nil
+        super.tearDown()
+    }
+    
+    func testCalculateMatchScore_WithPerfectMatch_Returns100() {
+        // Given
+        let user = GroupUser(/* perfect match data */)
+        let university = UniversityV2(/* matching requirements */)
+        
+        // When
+        let score = sut.calculateMatchScore(user: user, university: university)
+        
+        // Then
+        XCTAssertEqual(score, 100.0, accuracy: 0.01)
+    }
+    
+    func testCalculateMatchScore_WithNoMatch_Returns0() {
+        // Given
+        let user = GroupUser(/* no match data */)
+        let university = UniversityV2(/* different requirements */)
+        
+        // When  
+        let score = sut.calculateMatchScore(user: user, university: university)
+        
+        // Then
+        XCTAssertEqual(score, 0.0, accuracy: 0.01)
+    }
+}
+```
+
+## Common Pitfalls
+
+<Warning>
+  **Avoid these common mistakes:**
+</Warning>
+
+### 1. Breaking Navigation
+
+```swift
+// ❌ Don't bypass NavigationRouter
+struct MyView: View {
+    @State private var path = NavigationPath()
+    
+    var body: some View {
+        NavigationStack(path: $path) {
+            // This creates a separate navigation stack!
+        }
+    }
+}
+
+// ✅ Use NavigationRouter.shared
+struct MyView: View {
+    var body: some View {
+        Button("Go to Profile") {
+            NavigationRouter.shared.navigate(to: .userProfile(user))
+        }
+    }
+}
+```
+
+### 2. Triggering Cascade Re-renders
+
+```swift
+// ❌ Don't add @Published to AppContainer for every service
+class AppContainer: ObservableObject {
+    @Published var someManager: SomeManager  // This triggers re-render of ENTIRE APP!
+}
+
+// ✅ Let services manage their own @Published state
+class AppContainer: ObservableObject {
+    var someManager: SomeManager  // Not @Published
+}
+
+// Services publish their own updates
+class SomeManager: ObservableObject {
+    @Published var data: [Item] = []  // Only views observing this re-render
+}
+```
+
+### 3. Forgetting MainActor
+
+```swift
+// ❌ UI updates from background thread
+func loadData() async {
+    let data = try await fetchFromAPI()
+    self.items = data  // ⚠️ Publishing changes from background thread!
+}
+
+// ✅ Ensure UI updates on main thread
+func loadData() async {
+    let data = try await fetchFromAPI()
+    await MainActor.run {
+        self.items = data
+    }
+}
+
+// Or mark entire class
+@MainActor
+class MyViewModel: ObservableObject {
+    // All methods run on MainActor
+}
+```
+
+### 4. Hardcoding Secrets
+
+```swift
+// ❌ Never commit API keys
+let supabaseURL = "https://abc123.supabase.co"
+let apiKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+// ✅ Use Secrets.xcconfig
+let supabaseURL = Bundle.main.object(forInfoDictionaryKey: "SUPABASE_URL") as? String
+```
+
+## Best Practices
+
+### Performance
+
+<CardGroup cols={2}>
+  <Card title="Image Loading" icon="image">
+    Use Kingfisher for async loading and automatic caching:
+    
+    ```swift
+    KFImage(URL(string: imageURL))
+        .placeholder { ProgressView() }
+        .resizable()
+        .scaledToFill()
+    ```
+  </Card>
+  
+  <Card title="List Performance" icon="list">
+    Use `LazyVStack`/`LazyHStack` for large lists:
+    
+    ```swift
+    ScrollView {
+        LazyVStack {
+            ForEach(items) { item in
+                ItemRow(item: item)
+            }
+        }
+    }
+    ```
+  </Card>
+  
+  <Card title="Debouncing" icon="clock">
+    Debounce rapid user input (search, filters):
+    
+    ```swift
+    .onChange(of: searchText) { _, newValue in
+        debounceTimer?.invalidate()
+        debounceTimer = Timer.scheduledTimer(
+            withTimeInterval: 0.3,
+            repeats: false
+        ) { _ in
+            performSearch(newValue)
+        }
+    }
+    ```
+  </Card>
+  
+  <Card title="Task Cancellation" icon="xmark">
+    Cancel async tasks when view disappears:
+    
+    ```swift
+    .task {
+        await loadData()
+    }
+    // Automatically cancelled on disappear
+    ```
+  </Card>
+</CardGroup>
+
+### Security
+
+<Steps>
+  <Step title="Never commit secrets">
+    Use `Secrets.xcconfig` for all API keys, tokens, and URLs. Check `.gitignore` includes this file.
+  </Step>
+  
+  <Step title="Validate user input">
+    Always sanitize and validate user-provided data before sending to backend.
+  </Step>
+  
+  <Step title="Use HTTPS only">
+    All network requests must use HTTPS. No exceptions.
+  </Step>
+  
+  <Step title="Respect data privacy">
+    Follow GDPR and privacy best practices. Only collect necessary user data.
+  </Step>
+</Steps>
+
+### Accessibility
+
+```swift
+// Add accessibility labels
+Image(systemName: "heart.fill")
+    .accessibilityLabel("Favorite")
+
+Button(action: deleteItem) {
+    Image(systemName: "trash")
+}
+.accessibilityLabel("Delete item")
+.accessibilityHint("Removes this item from your list")
+
+// Support Dynamic Type
+Text("Hello")
+    .font(.body)  // Scales with user's text size preference
+
+// Provide alternative text for images
+AsyncImage(url: imageURL)
+    .accessibilityLabel("University campus photo")
+```
+
+## Getting Help
+
+<CardGroup cols={2}>
+  <Card title="Slack/Discord" icon="comments">
+    Ask questions in the team channel
+  </Card>
+  
+  <Card title="Documentation" icon="book">
+    Review setup and code structure guides
+  </Card>
+  
+  <Card title="Issues" icon="circle-exclamation">
+    Check existing issues or create new ones
+  </Card>
+  
+  <Card title="Code Review" icon="code-pull-request">
+    Request specific review for guidance
+  </Card>
+</CardGroup>
+
+## Resources
+
+- [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/)
+- [SwiftUI Documentation](https://developer.apple.com/documentation/swiftui/)
+- [Supabase Swift Client](https://github.com/supabase/supabase-swift)
+- [Xcode Documentation](https://developer.apple.com/documentation/xcode)
+
+## License
+
+By contributing to Chapter, you agree that your contributions will be licensed under the same license as the project.
+
+---
+
+<Tip>
+  **Thank you for contributing to Chapter!** Your work helps thousands of students find their perfect university. 🎓
+</Tip>

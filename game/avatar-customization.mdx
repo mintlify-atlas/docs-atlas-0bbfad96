@@ -1,0 +1,773 @@
+---
+title: Avatar Customization
+description: Create Bitmoji-style avatars with body parts, outfits, accessories, and animated pets in Chapter's game world
+---
+
+Students create personalized avatars to represent themselves in Chapter's game world. The avatar system uses a Bitmoji-inspired design with composited body parts, outfit layers, and animated accessories.
+
+## Avatar System Architecture
+
+### Component-Based Rendering
+
+Avatars are built from layered components rendered in real-time by `AvatarRenderer`:
+
+```swift
+static func renderAvatar(config: PlayerAvatarConfig) -> SKNode {
+    let container = SKNode()
+    
+    // Layer order (back to front):
+    container.addChild(renderBody(config))      // Z: 1
+    container.addChild(renderLegs(config))      // Z: 2
+    container.addChild(renderTorso(config))     // Z: 3
+    container.addChild(renderArms(config))      // Z: 4 (or 2 if behind)
+    container.addChild(renderHead(config))      // Z: 5
+    container.addChild(renderHair(config))      // Z: 6
+    container.addChild(renderEyes(config))      // Z: 7
+    container.addChild(renderAccessories(config)) // Z: 8
+    
+    return container
+}
+```
+
+Each component is drawn using SpriteKit's `Canvas` API or shape nodes for lightweight rendering.
+
+### Configuration Model
+
+Avatar appearance is stored in `PlayerAvatarConfig`:
+
+```swift
+struct PlayerAvatarConfig: Codable {
+    let baseColor: String           // Legacy: base color for circle avatar
+    let emojiFace: String           // Legacy: emoji fallback
+    
+    // Expanded avatar (Bitmoji-style)
+    let skinTone: String?           // "pale", "light", "medium", "tan", "dark", "deep"
+    let hairStyle: String?          // "none", "messy", "short", "long", "bun", etc.
+    let hairColor: String?          // Color hex or preset name
+    let eyeStyle: String?           // "round", "almond", "wide", "sleepy", etc.
+    let faceShape: String?          // "oval", "round", "square", "heart", etc.
+    let topStyle: String?           // "tshirt", "hoodie", "jacket", "polo", etc.
+    let topColor: String?
+    let bottomStyle: String?        // "jeans", "joggers", "shorts", "skirt"
+    let bottomColor: String?
+    let shoeStyle: String?          // "sneakers", "boots", "sandals"
+    let shoeColor: String?
+    let accessory1: String?         // "glasses", "hat", "earrings", etc.
+    let accessory2: String?
+    let uniMerchEnabled: String?    // "true" if wearing university-branded outfit
+}
+```
+
+### Resolved Enums
+
+The config uses string values that resolve to typed enums:
+
+```swift
+var resolvedSkinTone: AvatarSkinTone {
+    AvatarSkinTone(rawValue: skinTone ?? "") ?? .medium
+}
+
+enum AvatarSkinTone: String, CaseIterable, Codable {
+    case pale = "pale"
+    case light = "light"
+    case medium = "medium"
+    case tan = "tan"
+    case dark = "dark"
+    case deep = "deep"
+    
+    var hexColor: String {
+        switch self {
+        case .pale: return "#FFEBD6"
+        case .light: return "#F2D3B8"
+        case .medium: return "#D4A574"
+        case .tan: return "#B98555"
+        case .dark: return "#8B5A3C"
+        case .deep: return "#5C3A21"
+        }
+    }
+}
+```
+
+## Customization UI
+
+### Tabbed Interface
+
+`AvatarCustomizationView` uses a tab bar for customization categories:
+
+<img src="/images/avatar-tabs.png" alt="Avatar customization tabs" />
+
+**Tabs:**
+1. **Body** - Skin tone selection
+2. **Hair** - Style and color grids
+3. **Face** - Face shape and eye style
+4. **Outfit** - Top, bottom, and uni merch toggle
+5. **Shoes** - Shoe style and color
+6. **Accessories** - Glasses, hats, items (2 slots)
+
+### Real-Time Preview
+
+The preview renders the avatar with current selections:
+
+```swift
+private var avatarPreview: some View {
+    ZStack {
+        LinearGradient(
+            colors: [Color(hex: "#1A1A2E"), Color(hex: "#16213E")],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        
+        AvatarRenderer.previewView(config: currentConfig, size: 140)
+        
+        VStack {
+            Spacer()
+            Text(AuthManager.shared.currentUser?.firstName ?? "Player")
+                .font(.caption.bold())
+                .foregroundStyle(.white.opacity(0.7))
+        }
+    }
+    .frame(height: 200)
+}
+```
+
+Every selection update rebuilds `currentConfig`, triggering a preview refresh.
+
+### Body Customization
+
+Skin tone grid with color swatches:
+
+```swift
+LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6)) {
+    ForEach(AvatarSkinTone.allCases, id: \.self) { tone in
+        Circle()
+            .fill(Color(hex: tone.hexColor))
+            .frame(width: 44, height: 44)
+            .overlay {
+                if skinTone == tone {
+                    Circle().stroke(.white, lineWidth: 3)
+                    Circle().stroke(Color(hex: tone.hexColor).opacity(0.5), lineWidth: 6)
+                }
+            }
+            .onTapGesture {
+                withAnimation(.spring(response: 0.2)) { skinTone = tone }
+            }
+    }
+}
+```
+
+### Hair Customization
+
+Hair style grid with emoji icons:
+
+```swift
+enum AvatarHairStyle: String, CaseIterable {
+    case none = "none"
+    case messy = "messy"
+    case short = "short"
+    case long = "long"
+    case bun = "bun"
+    case ponytail = "ponytail"
+    case afro = "afro"
+    case braids = "braids"
+    
+    var icon: String {
+        switch self {
+        case .none: return "🙂"
+        case .messy: return "✨"
+        case .short: return "💇"
+        case .long: return "💁"
+        case .bun: return "👱"
+        case .ponytail: return "🎀"
+        case .afro: return "🌀"
+        case .braids: return "🪢"
+        }
+    }
+    
+    var displayName: String { rawValue.capitalized }
+}
+```
+
+Hair color uses a horizontal scrollable palette:
+
+```swift
+ScrollView(.horizontal, showsIndicators: false) {
+    HStack(spacing: 8) {
+        ForEach(AvatarHairColor.allCases, id: \.self) { color in
+            Circle()
+                .fill(Color(hex: color.hexColor))
+                .frame(width: 36, height: 36)
+                .overlay {
+                    if hairColor == color {
+                        Circle().stroke(.white, lineWidth: 2)
+                    }
+                }
+                .onTapGesture {
+                    withAnimation { hairColor = color }
+                }
+        }
+    }
+}
+```
+
+### Face Customization
+
+Eye styles rendered with `Canvas` previews:
+
+```swift
+private func eyePreview(_ style: AvatarEyeStyle) -> some View {
+    Canvas { context, size in
+        let cx = size.width / 2
+        let cy = size.height / 2
+        let spacing: CGFloat = 12
+        
+        for side in [-1.0, 1.0] {
+            let ex = cx + CGFloat(side) * spacing
+            
+            switch style {
+            case .round:
+                context.fill(
+                    Circle().path(in: CGRect(x: ex - 4, y: cy - 4, width: 8, height: 8)),
+                    with: .color(.black)
+                )
+            case .almond:
+                context.fill(
+                    Ellipse().path(in: CGRect(x: ex - 6, y: cy - 3, width: 12, height: 6)),
+                    with: .color(.black)
+                )
+            case .wide:
+                // Larger circle with pupil
+                context.fill(Circle().path(...), with: .color(.white))
+                context.stroke(Circle().path(...), with: .color(.black), lineWidth: 1)
+                context.fill(Circle().path(...), with: .color(.black))  // Pupil
+            // ... more styles
+            }
+        }
+    }
+}
+```
+
+Face shapes previewed with skin-colored shapes:
+
+```swift
+private func faceShapePreview(_ shape: AvatarFaceShape) -> some View {
+    Canvas { context, size in
+        let color = Color(hex: skinTone.hexColor)
+        
+        switch shape {
+        case .oval:
+            context.fill(Ellipse().path(...), with: .color(color))
+        case .round:
+            context.fill(Circle().path(...), with: .color(color))
+        case .heart:
+            // Custom path for heart shape
+            context.fill(Path { path in
+                path.move(to: ...)
+                path.addQuadCurve(...)
+            }, with: .color(color))
+        }
+    }
+}
+```
+
+### Outfit Customization
+
+Top and bottom style grids with color pickers:
+
+```swift
+enum AvatarTopStyle: String, CaseIterable {
+    case tshirt = "tshirt"
+    case hoodie = "hoodie"
+    case jacket = "jacket"
+    case polo = "polo"
+    case sweater = "sweater"
+    case jersey = "jersey"      // Uni-branded
+    case varsity = "varsity"    // Uni-branded
+    
+    var isUniBranded: Bool {
+        self == .jersey || self == .varsity
+    }
+    
+    var displayName: String {
+        rawValue.capitalized
+    }
+}
+```
+
+**University Merch Toggle:**
+
+For offer holders and enrolled students, uni-branded tops can display university colors:
+
+```swift
+if topStyle.isUniBranded,
+   let status = AuthManager.shared.currentUser?.enrollmentStatus,
+   (status == .offerHolder || status == .enrolled),
+   let uni = AuthManager.shared.currentUser?.uni {
+    HStack {
+        VStack(alignment: .leading) {
+            Text("Uni Merch")
+                .font(.caption.bold())
+            Text(uni.rawValue)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
+        Spacer()
+        Circle()
+            .fill(Color(hex: uni.hexColor))
+            .frame(width: 18, height: 18)
+        Toggle("", isOn: $uniMerchEnabled)
+            .tint(.orange)
+    }
+    .padding(10)
+    .background(
+        RoundedRectangle(cornerRadius: 10)
+            .fill(uniMerchEnabled ? Color.orange.opacity(0.1) : Color.clear)
+    )
+}
+```
+
+When enabled, the jersey/varsity uses the university's brand color instead of the custom top color.
+
+### Shoe Customization
+
+Shoe styles with color picker:
+
+```swift
+enum AvatarShoeStyle: String, CaseIterable {
+    case sneakers = "sneakers"
+    case boots = "boots"
+    case sandals = "sandals"
+    case flats = "flats"
+    case heels = "heels"
+    
+    var displayName: String { rawValue.capitalized }
+}
+```
+
+### Accessories
+
+Two accessory slots for glasses, hats, jewelry, etc.:
+
+```swift
+enum AvatarAccessory: String, CaseIterable {
+    case none = "none"
+    case glasses = "glasses"
+    case sunglasses = "sunglasses"
+    case beanie = "beanie"
+    case cap = "cap"
+    case earrings = "earrings"
+    case necklace = "necklace"
+    case scarf = "scarf"
+    
+    var icon: String {
+        switch self {
+        case .none: return "⭕"
+        case .glasses: return "👓"
+        case .sunglasses: return "🕶️"
+        case .beanie: return "🧢"
+        case .cap: return "🎩"
+        case .earrings: return "💎"
+        case .necklace: return "📿"
+        case .scarf: return "🧣"
+        }
+    }
+    
+    var displayName: String { rawValue.capitalized }
+}
+```
+
+## Rendering System
+
+### Body Parts
+
+`AvatarRenderer` draws body parts as SpriteKit nodes:
+
+**Head:**
+```swift
+private static func renderHead(_ config: PlayerAvatarConfig) -> SKNode {
+    let faceShape = config.resolvedFaceShape
+    let skinColor = SKColor(hex: config.resolvedSkinTone.hexColor)
+    
+    let head = SKShapeNode()
+    switch faceShape {
+    case .oval:
+        head.path = CGPath(ellipseIn: CGRect(x: -10, y: 0, width: 20, height: 26), transform: nil)
+    case .round:
+        head.path = CGPath(ellipseIn: CGRect(x: -11, y: 0, width: 22, height: 22), transform: nil)
+    // ... other shapes
+    }
+    head.fillColor = skinColor
+    head.strokeColor = skinColor.darker(by: 0.15)
+    head.lineWidth = 1
+    head.zPosition = 5
+    
+    return head
+}
+```
+
+**Hair:**
+```swift
+private static func renderHair(_ config: PlayerAvatarConfig) -> SKNode {
+    let hairStyle = config.resolvedHairStyle
+    guard hairStyle != .none else { return SKNode() }
+    
+    let hairColor = SKColor(hex: config.resolvedHairColor.hexColor)
+    let hair = SKShapeNode()
+    
+    switch hairStyle {
+    case .messy:
+        // Irregular top with strands
+        hair.path = messyHairPath()
+    case .bun:
+        // Circle on top of head
+        hair.path = CGPath(ellipseIn: CGRect(x: -6, y: 24, width: 12, height: 12), transform: nil)
+    case .long:
+        // Extends below shoulders
+        hair.path = longHairPath()
+    // ... other styles
+    }
+    
+    hair.fillColor = hairColor
+    hair.strokeColor = hairColor.darker(by: 0.2)
+    hair.lineWidth = 0.5
+    hair.zPosition = 6
+    
+    return hair
+}
+```
+
+**Torso (Outfit):**
+```swift
+private static func renderTorso(_ config: PlayerAvatarConfig) -> SKNode {
+    let topStyle = config.resolvedTopStyle
+    let topColor: SKColor
+    
+    if config.resolvedUniMerchEnabled, topStyle.isUniBranded,
+       let uni = AuthManager.shared.currentUser?.uni {
+        topColor = SKColor(hex: uni.hexColor)
+    } else {
+        topColor = SKColor(hex: config.resolvedTopColor)
+    }
+    
+    let torso = SKShapeNode()
+    
+    switch topStyle {
+    case .tshirt:
+        torso.path = tshirtPath()
+    case .hoodie:
+        torso.path = hoodiePath()  // Includes hood shape
+    case .jersey:
+        torso.path = jerseyPath()  // V-neck with number
+    // ... other styles
+    }
+    
+    torso.fillColor = topColor
+    torso.strokeColor = topColor.darker(by: 0.2)
+    torso.lineWidth = 1
+    torso.zPosition = 3
+    
+    return torso
+}
+```
+
+### Limb Pivot Groups
+
+Arms and legs are grouped at shoulder/hip pivots for natural animation:
+
+```swift
+private static func renderArms(_ config: PlayerAvatarConfig) -> SKNode {
+    let container = SKNode()
+    
+    // Right arm (shoulder pivot at origin)
+    let rightLimb = SKNode()
+    rightLimb.name = "rightLimb"
+    rightLimb.position = CGPoint(x: 6, y: 12)  // Shoulder position
+    
+    let rArm = SKShapeNode(rect: CGRect(x: 0, y: -10, width: 3, height: 10))
+    rArm.fillColor = skinColor
+    rightLimb.addChild(rArm)
+    
+    let rHand = SKShapeNode(circleOfRadius: 2)
+    rHand.fillColor = skinColor
+    rHand.position = CGPoint(x: 1.5, y: -10)
+    rightLimb.addChild(rHand)
+    
+    container.addChild(rightLimb)
+    
+    // Left arm (mirror)
+    let leftLimb = rightLimb.copy() as! SKNode
+    leftLimb.name = "leftLimb"
+    leftLimb.position = CGPoint(x: -6, y: 12)
+    leftLimb.xScale = -1  // Mirror
+    container.addChild(leftLimb)
+    
+    return container
+}
+```
+
+Pivot groups enable limb rotation for walk/run animations:
+
+```swift
+// In PlayerNode walk animation:
+rightLimb.run(SKAction.sequence([
+    SKAction.rotate(toAngle: 0.25, duration: 0.24),  // Swing forward
+    SKAction.rotate(toAngle: -0.25, duration: 0.24)  // Swing back
+]))
+```
+
+## Animations
+
+### Walk Cycle
+
+The walk animation uses squash/stretch, vertical bob, and limb swings:
+
+```swift
+private func startWalkingAnimation(sprite: SKNode) {
+    // Body squash/stretch
+    let stepCycle = SKAction.sequence([
+        SKAction.group([
+            SKAction.scaleX(to: 1.04, duration: 0.12),  // Compress
+            SKAction.scaleY(to: 0.97, duration: 0.12)
+        ]),
+        SKAction.group([
+            SKAction.scaleX(to: 0.97, duration: 0.12),  // Stretch
+            SKAction.scaleY(to: 1.03, duration: 0.12)
+        ])
+    ])
+    sprite.run(SKAction.repeatForever(stepCycle), withKey: "walk")
+    
+    // Vertical bob
+    let bob = SKAction.sequence([
+        SKAction.moveBy(x: 0, y: 2, duration: 0.12),
+        SKAction.moveBy(x: 0, y: -2, duration: 0.12)
+    ])
+    sprite.run(SKAction.repeatForever(bob), withKey: "walkBob")
+    
+    // Arm swing
+    if let rightLimb = sprite.childNode(withName: "rightLimb") {
+        let armSwing = SKAction.sequence([
+            SKAction.rotate(toAngle: 0.25, duration: 0.24),
+            SKAction.rotate(toAngle: -0.25, duration: 0.24)
+        ])
+        rightLimb.run(SKAction.repeatForever(armSwing), withKey: "walk")
+    }
+}
+```
+
+### Idle Breathing
+
+When stationary, a subtle breathing animation plays:
+
+```swift
+private func startIdleAnimation() {
+    let breathe = SKAction.sequence([
+        SKAction.group([
+            SKAction.scaleY(to: 1.01, duration: 1.2),
+            SKAction.scaleX(to: 0.995, duration: 1.2)
+        ]),
+        SKAction.group([
+            SKAction.scaleY(to: 0.995, duration: 1.2),
+            SKAction.scaleX(to: 1.005, duration: 1.2)
+        ])
+    ])
+    breathe.timingMode = .easeInEaseOut
+    sprite.run(SKAction.repeatForever(breathe), withKey: "idle")
+}
+```
+
+### Emote Animations
+
+Players can trigger expressive emotes (see [Multiplayer Features](/game/multiplayer-features#emote-system)):
+
+- **Wave:** Arm raises, body tilts, 3 wave cycles
+- **Dance:** Full body sways, arm pumps, 2 groove cycles
+- **Clap:** Arms swing inward, body bounces, 5 claps
+- **Laugh:** Rapid bounces, arms shake, lean-back
+- **Thumbs Up:** Arm raises confidently, body nods
+- **Jump:** Crouch anticipation, vertical leap, landing compression
+- **Sit:** Crouch down with breathing cycles
+
+## Pet Companions
+
+Students can equip animated pets that follow them:
+
+### Pet Configuration
+
+```swift
+struct PetConfig: Codable, Equatable {
+    let petType: String        // "dog", "cat", "bunny", "bird"
+    let petColor: String       // Hex color
+    let petName: String        // Custom name
+    let petAccessory: String?  // "bow", "bandana", "collar"
+}
+```
+
+### Pet Rendering
+
+`PetNode` renders simple geometric pets:
+
+```swift
+class PetNode: SKNode {
+    weak var targetPlayer: PlayerNode?
+    
+    init(config: PetConfig) {
+        super.init()
+        
+        let petType = PetType(rawValue: config.petType) ?? .dog
+        let color = SKColor(hex: config.petColor)
+        
+        switch petType {
+        case .dog:
+            addChild(renderDog(color: color))
+        case .cat:
+            addChild(renderCat(color: color))
+        case .bunny:
+            addChild(renderBunny(color: color))
+        case .bird:
+            addChild(renderBird(color: color))
+        }
+        
+        // Name label
+        let label = SKLabelNode(text: config.petName)
+        label.fontSize = 8
+        label.position = CGPoint(x: 0, y: 12)
+        addChild(label)
+    }
+}
+```
+
+### Following Behavior
+
+Pets follow the player with spring physics:
+
+```swift
+func updateFollow(deltaTime: TimeInterval) {
+    guard let player = targetPlayer else { return }
+    
+    let targetPos = CGPoint(
+        x: player.position.x - 30,
+        y: player.position.y - 15
+    )
+    
+    let dx = targetPos.x - position.x
+    let dy = targetPos.y - position.y
+    let distance = hypot(dx, dy)
+    
+    // Spring follow with damping
+    if distance > 5 {
+        let speed: CGFloat = min(distance * 0.15, 180)
+        let angle = atan2(dy, dx)
+        position.x += cos(angle) * speed * CGFloat(deltaTime)
+        position.y += sin(angle) * speed * CGFloat(deltaTime)
+    }
+}
+```
+
+Pets also broadcast in multiplayer presence and appear on remote players.
+
+## Persistence
+
+Avatar configs save to Supabase's `player_avatars` table:
+
+```swift
+func saveAvatarInBackground(_ config: PlayerAvatarConfig) {
+    Task {
+        guard let userId = AuthManager.shared.currentUser?.id else { return }
+        
+        struct AvatarRow: Encodable {
+            let user_id: UUID
+            let skin_tone: String?
+            let hair_style: String?
+            let hair_color: String?
+            // ... all config fields
+        }
+        
+        let row = AvatarRow(
+            user_id: userId,
+            skin_tone: config.skinTone,
+            hair_style: config.hairStyle,
+            hair_color: config.hairColor,
+            // ...
+        )
+        
+        try? await AppContainer.shared.supabase
+            .from("player_avatars")
+            .upsert(row)
+            .execute()
+        
+        await MainActor.run {
+            avatarConfig = config
+        }
+    }
+}
+```
+
+Configs load on app launch and refresh the player node reactively:
+
+```swift
+avatarCancellable = AvatarService.shared.$avatarConfig
+    .dropFirst()
+    .removeDuplicates()
+    .receive(on: RunLoop.main)
+    .sink { [weak self] _ in
+        self?.refreshPlayerAvatar()
+    }
+```
+
+## Avatar Shop
+
+Students spend coins earned from XP to unlock premium items:
+
+```swift
+struct ShopItem {
+    let id: String
+    let name: String
+    let category: ShopCategory  // .hair, .outfit, .accessory, .pet
+    let cost: Int               // Coin price
+    let unlockLevel: Int?       // Minimum level required
+}
+
+func purchaseItem(_ item: ShopItem) async -> Bool {
+    guard GameManager.shared.spendCoins(item.cost) else {
+        return false  // Insufficient coins
+    }
+    
+    // Save unlocked item to player_inventory
+    try? await InventoryService.shared.addItem(item.id)
+    
+    // Award coins from Supabase balance
+    await CoinService.shared.deductCoins(item.cost)
+    
+    return true
+}
+```
+
+<Info>
+  Coins are earned through gameplay, not purchased with real money - the shop is entirely cosmetic and in-game currency based
+</Info>
+
+## Performance
+
+<CardGroup cols={2}>
+  <Card title="Lightweight Rendering" icon="feather">
+    Avatars use SpriteKit shapes (no texture atlases) - ~2KB per avatar
+  </Card>
+  <Card title="Shared Components" icon="share-nodes">
+    Body parts reuse the same draw code across all players
+  </Card>
+  <Card title="Config Caching" icon="hard-drive">
+    Decoded configs cached by user_id to avoid JSON re-parsing
+  </Card>
+  <Card title="Batch Updates" icon="layer-group">
+    Customization changes batch to a single save on dismiss
+  </Card>
+</CardGroup>
+
+The system renders 30+ avatars at 60 FPS on iPhone 12.
+
+## Future Enhancements
+
+- **Animated Faces:** Eye blinks, mouth movements for speech
+- **Seasonal Outfits:** Halloween, Christmas, Easter themed items
+- **Dynamic Weather:** Umbrellas in rain, sunglasses in sun
+- **University Uniforms:** Sport kits, graduation gowns
+- **Pet Tricks:** Emote-triggered pet animations (sit, roll over, fetch)

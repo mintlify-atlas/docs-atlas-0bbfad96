@@ -1,0 +1,420 @@
+---
+title: 'Cost Estimator'
+description: 'Calculate your university living costs with Penny, your AI budget buddy, through a conversational chat experience'
+---
+
+The Cost Estimator is Chapter's interactive budgeting tool that helps UK students understand the real cost of university through a friendly chat with Penny, an AI-powered piggy bank character.
+
+## Overview
+
+Instead of filling out boring forms, you chat with Penny who asks about your lifestyle to build a personalised cost estimate. The tool considers rent, food, transport, social activities, and more to give you an accurate annual budget.
+
+<Info>
+Penny calculates both living costs and tuition fees, showing your total university expenses and potential student loan requirements.
+</Info>
+
+## How It Works
+
+<Steps>
+  <Step title="Start chatting">
+    Penny introduces herself and explains the process in a friendly, conversational way.
+  </Step>
+  
+  <Step title="Answer questions">
+    Penny asks about your city, accommodation, and spending habits through an interactive chat interface.
+  </Step>
+  
+  <Step title="Get smart suggestions">
+    Penny provides city-specific rent averages and preset spending options based on real student budgets.
+  </Step>
+  
+  <Step title="Review your estimate">
+    See a detailed breakdown of your annual costs with visual charts and explanations.
+  </Step>
+  
+  <Step title="Edit anytime">
+    Tap any category to update your answers and recalculate.
+  </Step>
+</Steps>
+
+## The Questions
+
+Penny asks about these spending categories:
+
+### Essential Costs
+
+<AccordionGroup>
+  <Accordion title="City & Location">
+    **Question:** Where will you be studying?
+    
+    - Search from 100+ UK university cities
+    - See city images to help you choose
+    - Get city-specific rent averages automatically
+    
+    Suggested cities: London, Manchester, Birmingham, Leeds, Liverpool, Glasgow, Edinburgh, Bristol, Sheffield, Newcastle, and more.
+  </Accordion>
+
+  <Accordion title="Accommodation (Rent)">
+    **Question:** How much is your monthly rent?
+    
+    **Smart suggestions:**
+    - If you selected a city, Penny suggests that city's average rent
+    - If you've shortlisted accommodation, use that exact rent
+    - Preset options: Budget (shared room), Average (ensuite), Premium (studio)
+    
+    **Options:**
+    - Use city average (£X/month)
+    - Select preset tier
+    - Enter custom amount
+    
+    <Note>
+    Can't skip this question - rent is required for an accurate estimate.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Bills Included?">
+    **Question:** Are bills included in your rent?
+    
+    - Yes → Skip utilities question
+    - No → Penny asks about utilities separately
+    
+    If bills not included, utilities question asks about:
+    - Electricity
+    - Gas
+    - Water
+    - Internet
+    
+    Default: £35/month for all utilities
+  </Accordion>
+</AccordionGroup>
+
+### Food & Dining
+
+<AccordionGroup>
+  <Accordion title="Groceries">
+    **Question:** How much do you spend on food shopping?
+    
+    **Presets:**
+    - **Budget** (£120/month) - "Meal prep" - Cook most meals, shop at budget supermarkets
+    - **Average** (£180/month) - "Balanced" - Mix of cooking and convenience
+    - **Generous** (£250/month) - "Quality food" - Fresh ingredients, variety
+    
+    Default: £180/month
+    
+    <Tip>
+    This covers supermarket shopping for meals you cook yourself.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Eating Out & Takeaways">
+    **Question:** How much for takeaways and eating out?
+    
+    **Presets:**
+    - **Rarely** (£20/month) - "Occasional" - Once or twice a month
+    - **Weekly** (£50/month) - "Weekly treats" - 1-2 times per week  
+    - **Often** (£100/month) - "Regular" - Multiple times per week
+    
+    Default: £50/month
+  </Accordion>
+</AccordionGroup>
+
+### Lifestyle & Social
+
+<AccordionGroup>
+  <Accordion title="Social Activities">
+    **Question:** How much for going out and socialising?
+    
+    **Presets:**
+    - **Quiet** (£40/month) - "Occasional" - Occasional nights out
+    - **Social** (£90/month) - "Weekly nights" - Regular social events
+    - **Active** (£150/month) - "Regular events" - Frequent nights out, events
+    
+    Default: £90/month
+    
+    Covers: Bars, clubs, cinema, concerts, student events
+  </Accordion>
+
+  <Accordion title="Gym & Fitness">
+    **Question:** Do you use a gym or have fitness memberships?
+    
+    **Presets:**
+    - **None** (£0/month) - "No gym"
+    - **Uni Gym** (£20/month) - "Campus gym" - University facilities
+    - **Premium** (£40/month) - "Full gym" - Commercial gym membership
+    
+    Default: £20/month
+  </Accordion>
+
+  <Accordion title="Subscriptions">
+    **Question:** How much on streaming and app subscriptions?
+    
+    **Presets:**
+    - **Minimal** (£10/month) - "One service" - Netflix or Spotify
+    - **Standard** (£20/month) - "A few" - 2-3 services
+    - **Full** (£40/month) - "Many apps" - Multiple streaming + apps
+    
+    Default: £20/month
+    
+    Covers: Netflix, Spotify, Amazon Prime, Apple Music, gaming subscriptions, etc.
+  </Accordion>
+</AccordionGroup>
+
+### Transport & Travel
+
+<AccordionGroup>
+  <Accordion title="Local Transport">
+    **Question:** How much do you spend on getting around?
+    
+    **Presets:**
+    - **Walking** (£15/month) - "On campus" - Occasional bus
+    - **Bus Pass** (£45/month) - "Public transit" - Monthly bus pass
+    - **Mixed** (£80/month) - "Various" - Buses, occasional taxis/trains
+    
+    Default: £45/month
+  </Accordion>
+
+  <Accordion title="Travel Home">
+    **Question:** How much for travelling home?
+    
+    **Presets:**
+    - **Local** (£20/month) - "Near home" - Close to home, infrequent visits
+    - **Moderate** (£50/month) - "Train ride" - Few hours away, monthly visits
+    - **Distance** (£100/month) - "Far away" - Long journey or flights
+    
+    Default: £40/month
+    
+    Averaged over the year, including holidays.
+  </Accordion>
+</AccordionGroup>
+
+### Academic & Other
+
+<AccordionGroup>
+  <Accordion title="Study Materials">
+    **Question:** How much for books and study supplies?
+    
+    **Presets:**
+    - **Light** (£15/month) - "Few supplies" - Mainly digital resources
+    - **Average** (£30/month) - "Regular" - Some textbooks, stationery
+    - **Heavy** (£60/month) - "Many books" - Lots of physical books, lab materials
+    
+    Default: £30/month
+  </Accordion>
+
+  <Accordion title="Phone Bill">
+    **Question:** What's your monthly phone contract?
+    
+    **Presets:**
+    - **Basic** (£10/month) - "Minimal data" - Low data SIM-only
+    - **Standard** (£20/month) - "Good data" - Decent allowance
+    - **Unlimited** (£35/month) - "Max data" - Unlimited data
+    
+    Default: £20/month
+  </Accordion>
+
+  <Accordion title="Other Expenses">
+    **Question:** Anything else? (Clothes, toiletries, misc)
+    
+    **Presets:**
+    - **Minimal** (£30/month) - "Essentials" - Just basics
+    - **Average** (£60/month) - "Normal" - Regular purchases
+    - **Comfortable** (£100/month) - "Extras" - Room for treats
+    
+    Default: £60/month
+    
+    Covers: Clothes, toiletries, haircuts, household items, gifts, etc.
+  </Accordion>
+</AccordionGroup>
+
+## The Breakdown
+
+Once you've answered all questions, Penny shows:
+
+### Annual Living Costs
+
+**Visual breakdown:**
+- Pie chart showing category distribution
+- Bar charts comparing your spending to UK averages
+- Total annual living cost
+
+**Categories shown:**
+- Accommodation (rent): £X/year
+- Food (groceries + takeaways): £X/year
+- Social & Entertainment: £X/year
+- Transport: £X/year  
+- Utilities (if applicable): £X/year
+- Other (phone, study, misc): £X/year
+
+**Total: £X per year**
+
+### Total University Costs
+
+If you've linked a course:
+
+**3-Year Example:**
+- Tuition fees (3 years): £29,319
+- Living costs (3 years): £X
+- **Total cost: £XX,XXX**
+
+**Tuition calculations:**
+- Uses current UK tuition fee cap: £9,773 (2026/27)
+- Applies 2.5% inflation per year
+- Accounts for course duration (3 or 4 years)
+- Scotland students: Lower fees if studying in Scotland
+
+<Note>
+Tuition fees shown are estimates based on 2026/27 rates with projected inflation. Actual fees may vary.
+</Note>
+
+### Monthly vs Annual
+
+Toggle between views:
+- **Monthly** - £X per month average
+- **Annual** - £X per year (including holidays)
+
+Students typically budget for 51 weeks (not 52) as accommodation contracts are usually 51 weeks.
+
+## Editing Your Estimate
+
+Tap any category card to update:
+
+1. **Re-enter the chat** - Question reappears with your current answer
+2. **Change your answer** - Select new preset or enter new amount
+3. **Auto-recalculate** - Summary updates instantly
+4. **Compare changes** - See how edits affect your total
+
+Your estimate saves automatically to your account.
+
+## Penny's Personality
+
+Penny is designed to make budgeting feel friendly, not stressful:
+
+**Chat style:**
+- Conversational and encouraging
+- Uses emojis sparingly
+- Celebrates completion
+- Non-judgmental about spending
+
+**Visual presence:**
+- Animated piggy bank character
+- Changes mood based on context (thinking, counting, celebrating)
+- Bounces and glows during interactions
+
+**Responses:**
+- "Hey there! I'm Penny, your budget buddy!"
+- "Let's figure out your uni costs together"
+- "Great choice! Here's what that looks like for [city]"
+- "Woohoo! All done! Here's your estimated cost breakdown"
+
+## Linking Your Data
+
+Penny pulls data from your Chapter profile:
+
+**Automatically included if available:**
+- **Shortlisted accommodation** - Uses actual rent from your shortlist
+- **Firm choice course** - Links course for tuition calculations  
+- **Home city** - Suggests as study location
+- **Preferred city** - From your preferences
+
+**Benefits:**
+- More accurate estimates
+- Fewer questions to answer
+- Compare different scenarios
+
+<Tip>
+Shortlist courses and accommodation before using the Cost Estimator for the most accurate results.
+</Tip>
+
+## Student Loan Estimation
+
+*Coming Soon*
+
+Future versions will include:
+- Student loan eligibility calculator
+- Maintenance loan amount based on household income
+- Loan vs savings breakdown
+- Repayment calculator
+- Scholarship and bursary suggestions
+
+## Comparing Pathways
+
+Use the Decision Tree feature to compare costs for different paths:
+
+**University vs Apprenticeship:**
+- **University** - Shows total cost (tuition + living)
+- **Apprenticeship** - Shows total earnings (salary over duration)
+
+**Different Cities:**
+Create multiple estimates for different cities to compare:
+- London vs Manchester costs
+- Scotland vs England tuition differences
+- Living cost variations
+
+## UK-Specific Features
+
+### City Averages
+
+Rent suggestions based on actual student accommodation data for:
+- London (£220/week average)
+- Manchester (£140/week average)
+- Birmingham (£130/week average)
+- [And 45+ more UK cities]
+
+### Real Costs
+
+Defaults based on:
+- NUS Student Money Survey data
+- Save the Student National Student Money Survey
+- University cost of living guides
+- Student accommodation providers
+
+### Academic Year Structure
+
+Calculations account for:
+- 51-week accommodation contracts (not 52)
+- Term-time vs holiday spending
+- 3 terms per year
+
+## Privacy & Data
+
+Your cost estimate:
+- ✅ Saves to your account
+- ✅ Syncs across devices  
+- ✅ Used to improve recommendations
+- ❌ Never shared publicly
+- ❌ Not visible to universities
+- ❌ Not used for advertising
+
+## Tips for Accuracy
+
+<AccordionGroup>
+  <Accordion title="Be realistic, not aspirational">
+    Base answers on your actual spending habits, not what you hope to spend.
+  </Accordion>
+
+  <Accordion title="Include irregular expenses">
+    The "other" category should cover things you buy occasionally but regularly (clothes, gifts, etc.).
+  </Accordion>
+
+  <Accordion title="Consider seasonal variation">
+    Monthly amounts are averaged. You might spend more in December (gifts) or September (settling in).
+  </Accordion>
+
+  <Accordion title="Check your bank statements">
+    Look at 2-3 months of spending to get accurate food and social budgets.
+  </Accordion>
+
+  <Accordion title="Add 10% buffer">
+    Unexpected costs always arise. Consider adding 10% to your total for emergencies.
+  </Accordion>
+
+  <Accordion title="Update as you learn more">
+    Revisit your estimate after visiting cities or finding accommodation.
+  </Accordion>
+</AccordionGroup>
+
+## Related Tools
+
+- **[Course Comparison](/tools/comparison-tools)** - Compare costs between different courses
+- **[Accommodation](/features/accommodation)** - Find housing that fits your budget
+- **[Career Paths](/tools/career-paths)** - See graduate salaries to understand future earnings

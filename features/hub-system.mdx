@@ -1,0 +1,222 @@
+---
+title: 'Hub System'
+description: 'Personalized home screen that adapts to students at every stage of their university journey'
+---
+
+The Hub is Chapter's intelligent home screen that evolves with students from prospective applicant to enrolled student. It provides a personalized dashboard with customizable widgets, contextual carousels, and quick access to essential tools.
+
+## Overview
+
+The Hub system dynamically adapts its layout and content based on user status:
+- **Prospects**: Course discovery, career exploration, and application tools
+- **Offer Holders**: Decision support, accommodation finder, and countdown widgets
+- **Enrolled Students**: Timetables, societies, campus events, and university life
+
+## Customizable Widgets
+
+Students can personalize their Hub with drag-and-drop widgets tailored to their needs.
+
+### Widget Management
+
+<Steps>
+  <Step title="Add Widgets">
+    Tap the plus (+) button in the Widgets section to browse available widgets. Each widget shows a preview of its functionality.
+  </Step>
+  <Step title="Rearrange Widgets">
+    Long press any widget to enter edit mode. Drag widgets to reorder them based on your priorities.
+  </Step>
+  <Step title="Remove Widgets">
+    In edit mode, tap the remove (x) button on any widget to delete it from your Hub.
+  </Step>
+</Steps>
+
+### Prospect Widgets
+
+For students exploring university options:
+
+<CardGroup cols={2}>
+  <Card title="Course Match" icon="sparkles">
+    AI-powered course recommendations based on your grades, interests, and career goals
+  </Card>
+  <Card title="Leaderboards" icon="trophy">
+    Compare courses and universities across rankings, graduate prospects, and student satisfaction
+  </Card>
+  <Card title="Compare" icon="columns">
+    Side-by-side comparison tool for courses, universities, and apprenticeships
+  </Card>
+  <Card title="Course Shortlist" icon="heart">
+    Quick access to your saved courses with swipeable carousel view
+  </Card>
+  <Card title="Career Paths" icon="route">
+    Explore career options aligned with your course interests
+  </Card>
+  <Card title="Cost Estimator" icon="sterling-sign">
+    Calculate total university costs including tuition, accommodation, and living expenses
+  </Card>
+</CardGroup>
+
+### Student Widgets
+
+For enrolled university students:
+
+<CardGroup cols={2}>
+  <Card title="My Lectures" icon="calendar">
+    View your class schedule and upcoming lectures
+  </Card>
+  <Card title="My Modules" icon="books">
+    Access course materials and module information
+  </Card>
+  <Card title="Browse Societies" icon="users">
+    Discover student societies matching your interests
+  </Card>
+  <Card title="Browse Sports Clubs" icon="futbol">
+    Find sports teams and clubs at your university
+  </Card>
+  <Card title="University Confessions" icon="megaphone">
+    Anonymous student community board (verified students only)
+  </Card>
+</CardGroup>
+
+## Dynamic Carousels
+
+The Hub features smart carousels that surface relevant content based on user behavior and preferences.
+
+### Recently Viewed Courses
+
+Automatically tracks courses you've explored, making it easy to revisit options. Shows:
+- Course name and university
+- Key stats (UCAS points, tuition fees)
+- Match percentage (if using Course Match)
+
+### Recommended Careers
+
+Intelligent career suggestions based on:
+- Course shortlist selections
+- Course Match quiz responses
+- Viewing history patterns
+
+### Job Listings & Apprenticeships
+
+Curated opportunities matching your:
+- Subject interests
+- Geographic preferences
+- Career aspirations
+
+### Upcoming Open Days
+
+Personalized open day recommendations for:
+- Universities on your shortlist
+- Similar institutions you might like
+- Courses you've viewed recently
+
+<Note>
+  Open day dates are pulled in real-time, with options to filter by in-person or virtual attendance.
+</Note>
+
+## What's Next Widget
+
+Provides intelligent next-step guidance throughout your journey:
+
+<Tabs>
+  <Tab title="Exploring Stage">
+    - Take Course Match quiz
+    - Explore subject categories
+    - Build your shortlist
+    - Research career paths
+  </Tab>
+  <Tab title="Applying Stage">
+    - Complete UCAS application
+    - Attend open days
+    - Write personal statement
+    - Track application deadlines
+  </Tab>
+  <Tab title="Decision Stage">
+    - Compare offers received
+    - Book accommodation viewing
+    - Calculate costs
+    - Accept firm and insurance choices
+  </Tab>
+</Tabs>
+
+## Course Preview
+
+For users actively considering specific courses, the Hub displays a featured course preview showing:
+- Course title and university
+- Entry requirements
+- Key statistics
+- Quick action buttons (shortlist, compare, view details)
+
+## Navigation Structure
+
+The Hub header provides quick access to:
+
+<CardGroup cols={3}>
+  <Card title="Profile" icon="user">
+    Account settings, preferences, and personal information
+  </Card>
+  <Card title="Notifications" icon="bell">
+    Application updates, deadline reminders, and personalized alerts
+  </Card>
+  <Card title="Search" icon="magnifying-glass">
+    Universal search across courses, universities, and content
+  </Card>
+</CardGroup>
+
+## Stage Transitions
+
+The Hub automatically adapts when users progress through their journey:
+
+1. **Prospect → Offer Holder**: Widgets shift to focus on decision-making and preparation
+2. **Offer Holder → Enrolled**: Hub transforms to show campus life, timetables, and student resources
+
+<Warning>
+  Widget configurations are saved separately for each stage, so switching between stages (e.g., for testing) won't lose your customizations.
+</Warning>
+
+## Technical Implementation
+
+### Widget System Architecture
+
+Widgets are managed through `ChapterWidgetManager` which:
+- Maintains separate widget lists for prospects and students
+- Persists widget order and customizations to UserDefaults
+- Caches widget data to prevent unnecessary re-rendering during scroll
+- Supports drag-and-drop reordering with haptic feedback
+
+### Data Sources
+
+- **Recently Viewed**: Tracked via `RecentlyViewedCoursesManager` with Supabase sync
+- **Recommendations**: Generated server-side using collaborative filtering and content-based algorithms
+- **Open Days**: Real-time data from `OpenDayManager` with university and course filters
+- **Carousels**: Lazy-loaded with pagination support
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Optimize Your Hub Layout">
+    - Place most-used widgets at the top
+    - Remove widgets you don't use to reduce clutter
+    - Use Course Match results to discover personalized content
+  </Accordion>
+  <Accordion title="Stay Up to Date">
+    - Check What's Next widget daily for timely actions
+    - Enable notifications for deadline reminders
+    - Review recommended courses weekly
+  </Accordion>
+  <Accordion title="Leverage Shortcuts">
+    - Tap university logos in Course Preview to view full profiles
+    - Long-press widgets for quick actions
+    - Swipe horizontally on carousels to browse efficiently
+  </Accordion>
+</AccordionGroup>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Course Discovery" href="/features/course-discovery" icon="graduation-cap">
+    Explore 28,000+ UK university courses
+  </Card>
+  <Card title="What's On" href="/features/whats-on" icon="calendar-days">
+    Map-based discovery for events, open days, and more
+  </Card>
+</CardGroup>
