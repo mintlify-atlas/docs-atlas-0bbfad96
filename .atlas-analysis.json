@@ -1,0 +1,138 @@
+{
+  "projectType": "saas",
+  "projectName": "Chapter",
+  "projectDescription": "A comprehensive iOS app guiding UK students through their entire university journey, from course discovery to campus life.",
+  "theme": "palm",
+  "primaryColor": "#4A90E2",
+  "lightColor": "#7B68EE",
+  "darkColor": "#2C5282",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "student-journey-stages"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/hub-system",
+              "features/course-discovery",
+              "features/university-search",
+              "features/accommodation",
+              "features/whats-on"
+            ]
+          },
+          {
+            "group": "Social & Community",
+            "pages": [
+              "social/groups-and-messaging",
+              "social/campus-feed",
+              "social/events-calendar",
+              "social/societies-sports"
+            ]
+          },
+          {
+            "group": "Tools & Planning",
+            "pages": [
+              "tools/career-paths",
+              "tools/career-arcade",
+              "tools/comparison-tools",
+              "tools/cost-estimator",
+              "tools/lists-checklists"
+            ]
+          },
+          {
+            "group": "Game World",
+            "pages": [
+              "game/game-hub-overview",
+              "game/multiplayer-features",
+              "game/avatar-customization"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "guides/for-prospects",
+              "guides/for-offer-holders",
+              "guides/for-students",
+              "guides/international-students"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Technical Reference",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "technical/architecture-overview",
+              "technical/navigation-system",
+              "technical/data-models",
+              "technical/game-architecture"
+            ]
+          },
+          {
+            "group": "Services & APIs",
+            "pages": [
+              "technical/supabase-integration",
+              "technical/authentication",
+              "technical/real-time-features",
+              "technical/data-services"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/setup",
+              "development/code-structure",
+              "development/contributing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered course matching and recommendations",
+    "Comprehensive university and course search with advanced filtering",
+    "Student accommodation discovery and comparison",
+    "Interactive career exploration and gamified career arcade",
+    "Social groups, messaging, and campus feed",
+    "Event calendar and university societies/sports",
+    "Budget planning and cost estimation tools",
+    "Comparison tools for courses, universities, and accommodation",
+    "3D multiplayer game hub with avatar customization",
+    "Journey tracking with stage-based progression",
+    "Real-time chat and multiplayer interactions",
+    "Customizable widget-based hub dashboard"
+  ],
+  "publicApiSurface": [
+    "ChapterApp - Main SwiftUI app entry point",
+    "MasterTabView - Tab-based navigation system",
+    "AppContainer.shared - Dependency injection container",
+    "AuthManager.shared - Authentication and user management",
+    "NavigationRouter.shared - Navigation state management",
+    "GameManager.shared - Game world state management",
+    "CourseDataServiceV2 - Course data operations",
+    "UniversityDataServiceV2 - University data operations",
+    "CareerPathsManager - Career exploration data",
+    "GroupChatViewModel - Messaging functionality",
+    "WhatsOnManager - Events and activities",
+    "ChapterWidgetManager - Hub widget system",
+    "AccommodationV2Manager - Housing search",
+    "ShortlistV2Manager - User shortlist management",
+    "CalendarEvent - Event data model",
+    "UniversityV2 - University data model",
+    "Course_V2 - Course data model",
+    "GroupUser - User profile model",
+    "GroupChat - Chat group model"
+  ]
+}
